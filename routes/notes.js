@@ -42,15 +42,15 @@ router.post('/addnotes', fectchuser, [
 
 })
 
-router.post('/updatenote/:id' , fectchuser , [
+router.put('/updatenote/:id' , fectchuser , [
     body('title', "enter a vaild title").isLength({min:10}), 
     body('description', "Description must be 10 dharacters only").isLength({min: 10})
 ], async (req, res) => {
-    const {title, decsiption} = req.body;
+    const {title,  description} = req.body;
 
     const newNote = {};
     if(title){newNote.title = title}
-    if(title){newNote. decsiption =  decsiption}
+    if(title){newNote. description =   description}
 
     let note = await Note.findById(req.params.id);
     if(!note){return res.status(404).send("note found")};
@@ -63,5 +63,22 @@ router.post('/updatenote/:id' , fectchuser , [
 
     res.json({note})
 })
+
+router.delete('/deletenote/:id' , fectchuser , async (req, res) => {
+   // const {title,  description} = req.body;
+
+
+    let note = await Note.findById(req.params.id);
+    if(!note){return res.status(404).send("note found")};
+
+    if(note.user.toString() !== req.user.id) {
+        return res.status(401).send("not allow")
+    }
+
+    note = await Note.findByIdAndDelete(req.params.id)
+
+    res.json({"delete" : "Success Full" , note :note})
+})
+
 
 module.exports = router;
