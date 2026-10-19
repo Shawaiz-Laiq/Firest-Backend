@@ -38,6 +38,7 @@ router.post('/addnotes', fectchuser, [
         console.error(error.message)
         res.status(500).send({error: "internal server error"})
     }
+    
 
 
 })
@@ -47,6 +48,7 @@ router.put('/updatenote/:id' , fectchuser , [
     body('description', "Description must be 10 dharacters only").isLength({min: 10})
 ], async (req, res) => {
     const {title,  description} = req.body;
+    try{
 
     const newNote = {};
     if(title){newNote.title = title}
@@ -62,10 +64,15 @@ router.put('/updatenote/:id' , fectchuser , [
     note = await Note.findByIdAndUpdate(req.params.id, {$set : newNote}, { returnDocument: 'after' })
 
     res.json({note})
+    } catch (error){
+        console.error(error.message)
+        res.status(500).send({error: "internal server error"})
+     }
 })
 
 router.delete('/deletenote/:id' , fectchuser , async (req, res) => {
    // const {title,  description} = req.body;
+   try{
 
 
     let note = await Note.findById(req.params.id);
@@ -78,6 +85,10 @@ router.delete('/deletenote/:id' , fectchuser , async (req, res) => {
     note = await Note.findByIdAndDelete(req.params.id)
 
     res.json({"delete" : "Success Full" , note :note})
+    } catch (error){
+        console.error(error.message)
+        res.status(500).send({error: "internal server error"})
+     }
 })
 
 
