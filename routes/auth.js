@@ -62,11 +62,13 @@ const {email, password} = req.body
 try{
     let user = await User.findOne({email});
     if(!user) {
-        return res.status(400).json({error: "please try to login with corrcet credentials"})
+         success = false
+        return res.status(400).json({success, error: "please try to login with corrcet credentials"})
     }
     const passwordC = await bcrypt.compare(password, user.password)
     if (!passwordC) {
-          return res.status(400).json({error: "please try to login with corrcet credentials"})
+        success = false
+          return res.status(400).json({success, error: "please try to login with corrcet credentials"})
     }
     const data ={
         user: {
@@ -74,7 +76,8 @@ try{
         }
     }
      const jwtdata = jwt.sign(data, sec);
-     res.json({jwtdata})
+    success = true
+     res.json({success,jwtdata})
 } catch (error) { 
     console.error(error.message);
     res.status(500).send("server error")
