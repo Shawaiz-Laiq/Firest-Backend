@@ -7,7 +7,8 @@ const { body , validationResult } = require('express-validator');
 
 router.get('/fetchnotes', fectchuser,  async (req , res)=>{
     try{
-    const notes = await Note.find({user: req.user.id})
+   // const notes = await Note.find({user: req.user.id})
+   const notes = await Note.find({ user: req.user.id }).sort({ _id: -1 });
     res.json(notes)
     } catch (error){
         console.error(error.message)
@@ -16,7 +17,7 @@ router.get('/fetchnotes', fectchuser,  async (req , res)=>{
 })
 
 router.post('/addnotes', fectchuser, [
-    body('title', "enter a vaild title").isLength({min:10}), 
+    body('title', "enter a vaild title").isLength({min:3}), 
     body('description', "Description must be 10 dharacters only").isLength({min: 10})
 ] , async (req , res)=>{
     try{
@@ -44,7 +45,7 @@ router.post('/addnotes', fectchuser, [
 })
 
 router.put('/updatenote/:id' , fectchuser , [
-    body('title', "enter a vaild title").isLength({min:10}), 
+    body('title', "enter a vaild title").isLength({min:3}), 
     body('description', "Description must be 10 dharacters only").isLength({min: 10})
 ], async (req, res) => {
     const {title,  description} = req.body;

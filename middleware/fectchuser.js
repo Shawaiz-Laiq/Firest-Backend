@@ -14,6 +14,9 @@ const fectchuser = (req, res, next) => {
     try {
         const data = jwt.verify(token, sec);
         req.user = data.user;
+        // res.send({
+        //     result: "success"
+        // })
         next();
     } catch (error) {
         return res.status(401).send({

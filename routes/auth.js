@@ -21,8 +21,18 @@ router.post('/createuser', [
     }
     try{
     let user = await User.findOne({email: req.body.email});
+    let existingName = await User.findOne({ name: req.body.name });
+    if(user && existingName){
+        return res.status(400).json({errors : "acoount already exists , This name is already taken"})
+    }
     if(user){
         return res.status(400).json({errors : "acoount already exists"})
+    }
+
+    if (existingName) {
+        return res.status(400).json({
+            errors: "This name is already taken"
+        });
     }
     const salt = await bcrypt.genSalt(10);
 
