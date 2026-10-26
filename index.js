@@ -1,22 +1,34 @@
-const connectToMongoose = require('./bd');
-const express = require('express');
-var cors = require('cors')
-connectToMongoose();
-const app = express()
+
 require('dotenv').config();
-const port = process.env.PORT
 
+const express = require('express');
+const cors = require('cors');
+const connectToMongoose = require('./bd');
 
-app.use(cors())
-app.use(express.json())
+const app = express();
+const port = process.env.PORT || 5000;
+
+app.use(cors());
+app.use(express.json());
+
 app.get('/', (req, res) => {
-    res.send('iNotebook Backend is running!');
+  res.send('iNotebook Backend is running!');
 });
 
-app.use('/api/auth', require('./routes/auth'))
-app.use('/api/notes', require('./routes/notes'))
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/notes', require('./routes/notes'));
 
+const startServer = async () => {
+  try {
+    await connectToMongoose();
 
-app.listen(port, () => {
-  console.log(`Example app listening on port  http://localhost:${port}`)
-})
+    app.listen(port, () => {
+      console.log(`Backend running on port ${port}`);
+    });
+  } catch (error) {
+    console.error('Server startup failed:', error.message);
+    process.exit(1);
+  }
+};
+
+startServer();

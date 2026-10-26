@@ -12,7 +12,6 @@
 const mongoose = require('mongoose');
 require('dotenv').config();
 
-//const mongoUri = "mongodb+srv://shawaizkhan233_db_user:gFQuBmyrX4EzjBbo@cluster0.p9dl1un.mongodb.net/";
 
 const connectToMongoose = async () => {
     try {
