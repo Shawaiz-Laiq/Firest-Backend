@@ -83,31 +83,57 @@ router.put('/updatenote/:id', fectchuser, [
     }
 })
 
+
+const NoteHistory = require('../models/NoteHistory');
+const User = require('../models/User'); // apne actual User model path ko check karna
+
 router.delete('/deletenote/:id', fectchuser, async (req, res) => {
-    // const {title,  description} = req.body;
-    try {
+  try {
+    const note = await Note.findById(req.params.id);
 
+    if (!note) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
 
-        let note = await Note.findById(req.params.id);
-        if (!note) { return res.status(404).send("note found") };
+    if (note.user.toString() !== req.user.id) {
+      return res.status(401).json({ error: 'Not allowed' });
+    }
 
-        if (note.user.toString() !== req.user.id) {
-            return res.status(401).send("not allow")
-        }
+    const owner = await User.findById(note.user).select('name');
 
-        note = await Note.findByIdAndDelete(req.params.id)
-        await NoteActivity.create({
-  user: req.user.id,
-  action: 'delete',
-  noteTitle: note.title
+    // history save 
+    await NoteHistory.create({
+      originalNoteId: note._id,
+      user: note.user,
+      username: owner?.name || 'Unknown',
+      title: note.title,
+      description: note.description,
+      createdAt: note.time,
+      deletedAt: new Date(),
+      status: 'deleted'
+    });
+
+    // History save 
+    await Note.findByIdAndDelete(note._id);
+
+    await NoteActivity.create({
+      user: req.user.id,
+      action: 'delete',
+      noteTitle: note.title
+    });
+
+    return res.json({
+      success: true,
+      message: 'Note deleted and history saved'
+    });
+  } catch (error) {
+    console.error('Delete note error:', error);
+    return res.status(500).json({ error: 'Server error' });
+  }
 });
 
-        res.json({ "delete": "Success Full", note: note })
-    } catch (error) {
-        console.error(error.message)
-        res.status(500).send({ error: "internal server error" })
-    }
-})
+
+
 
 
 module.exports = router;

@@ -11,6 +11,8 @@ const LoginActivity = require('../models/LoginActivity');
 const NoteActivity = require('../models/NoteActivity');
 const Note = require('../models/Note');
 const DeletedUser = require('../models/DeletedUser');
+const NoteHistory = require('../models/NoteHistory');
+
 
 
 
@@ -104,6 +106,7 @@ router.post('/login', [
 
     await LoginActivity.create({
       user: user._id
+      
     });
     console.log("LOGIN ACTIVITY SAVED FOR:", user.email);
 
@@ -385,8 +388,9 @@ router.post('/admin/login', [
     await user.save();
 
     await LoginActivity.create({
-      user: user._id
-    });
+  user: user._id,
+  loginAt: new Date()
+});
 
     const jwtdata = jwt.sign(data, sec);
 
@@ -720,6 +724,7 @@ const uniqueUsers24h = uniqueUserIds24h.length;
 })
   .select('name email time lastLogin lastSeen role')
   .lean();
+  
 
 
 
@@ -758,6 +763,72 @@ const uniqueUsers24h = uniqueUserIds24h.length;
     });
   }
 });
+
+
+router.get('/admin/notes-history', fectchuser, async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id).select('role');
+
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin access required'
+      });
+    }
+
+    const activeNotes = await Note.find()
+      .populate('user', 'name')
+      .sort({ time: -1 })
+      .lean();
+
+    const deletedNotes = await NoteHistory.find({
+      status: 'deleted'
+    })
+      .sort({ deletedAt: -1 })
+      .lean();
+
+    const activeHistory = activeNotes.map(note => ({
+      id: note._id,
+      title: note.title,
+      description: note.description,
+      username: note.user?.name || 'Unknown',
+      createdAt: note.time,
+      deletedAt: null,
+      status: 'active'
+    }));
+
+    const deletedHistory = deletedNotes.map(note => ({
+      id: note.originalNoteId,
+      title: note.title,
+      description: note.description,
+      username: note.username || 'Unknown',
+      createdAt: note.createdAt,
+      deletedAt: note.deletedAt,
+      status: 'deleted'
+    }));
+
+    const notes = [...activeHistory, ...deletedHistory]
+      .sort((a, b) =>
+        new Date(b.deletedAt || b.createdAt) -
+        new Date(a.deletedAt || a.createdAt)
+      );
+
+    return res.json({
+      success: true,
+      totalNotes: notes.length,
+      activeNotes: activeHistory.length,
+      deletedNotes: deletedHistory.length,
+      notes
+    });
+  } catch (error) {
+    console.error('Notes history error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
+});
+
 
 
 
