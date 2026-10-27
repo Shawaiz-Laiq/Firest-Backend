@@ -117,33 +117,67 @@ router.post('/login', [
   }
 })
 
+
 router.delete('/delete-account', fectchuser, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
+    try {
+        const user = await User.findById(req.user.id);
 
-    if (!user || user.role === 'admin') {
-      return res.status(404).json({
-        success: false,
-        error: 'Account not found'
-      });
+        if (!user || user.role === 'admin') {
+            return res.status(404).json({
+                success: false,
+                error: 'Account not found'
+            });
+        }
+
+        // Save account in DeletedUser collection first
+        const deletedUser = new DeletedUser({
+            originalUserId: user._id,
+            name: user.name,
+            email: user.email,
+            password: user.password, // Existing hashed password
+            role: user.role,
+            lastLogin: user.lastLogin,
+            lastSeen: user.lastSeen,
+            loginCount: user.loginCount,
+            time: user.time,
+            createdAt: user.createdAt,
+            deletedAt: new Date()
+        });
+
+        await deletedUser.save();
+
+        // Remove original account from Users
+        const result = await User.deleteOne({
+            _id: user._id
+        });
+
+        // Roll back archive if original account was not deleted
+        if (result.deletedCount !== 1) {
+            await DeletedUser.deleteOne({
+                _id: deletedUser._id
+            });
+
+            return res.status(500).json({
+                success: false,
+                error: 'Account could not be deleted. Please try again.'
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: 'Your account has been deleted successfully.'
+        });
+
+    } catch (error) {
+        console.error('Delete account error:', error);
+
+        return res.status(500).json({
+            success: false,
+            error: 'Server error while deleting account.'
+        });
     }
-
-    user.isDeleted = true;
-    user.deletedAt = new Date();
-
-    await user.save();
-
-    res.json({
-      success: true,
-      message: 'Account moved to Deleted Users'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'Server error'
-    });
-  }
 });
+
 
 
 // Move user to Deleted Users
@@ -401,24 +435,29 @@ router.get('/admin/stats', fectchuser, async (req, res) => {
     lastMonth.setDate(lastMonth.getDate() - 30);
 
     const [
-      onlineUsers,
-      loginEvents24h,
-      uniqueUsers24h
-    ] = await Promise.all([
-      User.countDocuments(),
+  onlineUsers,
+  loginEvents24h,
+  uniqueUserIds24h
+] = await Promise.all([
+  // Users active within the last 2 minutes
+  User.countDocuments({
+    role: 'user',
+    isDeleted: { $ne: true },
+    lastSeen: { $gte: onlineCutoff, $lte: now }
+  }),
 
-      User.countDocuments({
-        lastSeen: { $gte: onlineCutoff }
-      }),
+  // Successful login events during the last 24 hours
+  LoginActivity.countDocuments({
+    loginAt: { $gte: last24Hours, $lte: now }
+  }),
 
-      LoginActivity.countDocuments({
-        loginAt: { $gte: last24Hours, $lte: now }
-      }),
+  // Distinct users who logged in during the last 24 hours
+  LoginActivity.distinct('user', {
+    loginAt: { $gte: last24Hours, $lte: now }
+  })
+]);
 
-      LoginActivity.distinct('user', {
-        loginAt: { $gte: last24Hours, $lte: now }
-      })
-    ]);
+const uniqueUsers24h = uniqueUserIds24h.length;
 
     const recentLogins = await LoginActivity.aggregate([
       {
@@ -602,8 +641,9 @@ router.get('/admin/stats', fectchuser, async (req, res) => {
     ]);
     // Total registered users (normal users only)
     const totalRegisteredUsers = await User.countDocuments({
-      role: 'user'
-    });
+  role: 'user',
+  isDeleted: { $ne: true }
+});
 
     // Users registered in the last 24 hours
     const newUsers24h = await User.countDocuments({
@@ -618,10 +658,13 @@ router.get('/admin/stats', fectchuser, async (req, res) => {
     });
 
     // All users with registration and last-login details
-    const allUsers = await User.find({ role: 'user' })
-      .select('name email time lastLogin')
-      .sort({ time: -1 })
-      .lean();
+    const allUsers = await User.find({
+  role: 'user',
+  isDeleted: { $ne: true }
+})
+  .select('name email time lastLogin')
+  .sort({ time: -1 })
+  .lean();
 
     // Total notes in the database
     const totalNotes = await Note.countDocuments();
@@ -671,10 +714,12 @@ router.get('/admin/stats', fectchuser, async (req, res) => {
     .select('-password')
     .sort({ deletedAt: -1 })
     .lean();
-    const totalUsers = await User.find({
+   const totalUsers = await User.find({
   role: 'user',
   isDeleted: { $ne: true }
-});
+})
+  .select('name email time lastLogin lastSeen role')
+  .lean();
 
 
 
