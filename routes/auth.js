@@ -10,6 +10,8 @@ const fectchuser = require("../middleware/fectchuser");
 const LoginActivity = require('../models/LoginActivity');
 const NoteActivity = require('../models/NoteActivity');
 const Note = require('../models/Note');
+const DeletedUser = require('../models/DeletedUser');
+
 
 
 
@@ -146,62 +148,150 @@ router.delete('/delete-account', fectchuser, async (req, res) => {
 
 // Move user to Deleted Users
 router.delete('/admin/delete-user/:id', fectchuser, async (req, res) => {
-  try {
-    const admin = await User.findById(req.user.id);
+    try {
+        const admin = await User.findById(req.user.id);
 
-    if (!admin || admin.role !== 'admin') {
-      return res.status(403).json({ success: false, error: 'Admin access required' });
-    }
+        if (!admin || admin.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                error: 'Admin access required'
+            });
+        }
 
-    const user = await User.findOne({
-      _id: req.params.id,
-      role: 'user',
-      isDeleted: false
+        const user = await User.findOne({
+            _id: req.params.id,
+            role: 'user',
+            isDeleted: { $ne: true }
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        // Save user in DeletedUser collection first
+        const deletedUser = new DeletedUser({
+            originalUserId: user._id,
+            name: user.name,
+            email: user.email,
+            password: user.password,
+            role: user.role,
+            lastLogin: user.lastLogin,
+            lastSeen: user.lastSeen,
+            loginCount: user.loginCount,
+            time: user.time,
+            createdAt: user.createdAt,
+            deletedAt: new Date()
+        });
+
+       await deletedUser.save();
+
+const result = await User.deleteOne({ _id: user._id });
+
+if (result.deletedCount !== 1) {
+    await DeletedUser.deleteOne({ _id: deletedUser._id });
+
+    return res.status(500).json({
+        success: false,
+        error: 'User could not be removed from Users'
     });
+}
 
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+        res.json({
+            success: true,
+            message: 'User moved to Deleted Users collection'
+        });
+
+    } catch (error) {
+        console.error('Delete user error:', error);
+
+        res.status(500).json({
+            success: false,
+            error: 'Server error'
+        });
     }
-
-    user.isDeleted = true;
-    user.deletedAt = new Date();
-    await user.save();
-
-    res.json({ success: true, message: 'User moved to Deleted Users' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
 });
 
 
 // Restore user
+
 router.put('/admin/restore-user/:id', fectchuser, async (req, res) => {
-  try {
-    const admin = await User.findById(req.user.id);
+    try {
+        // Verify admin
+        const admin = await User.findById(req.user.id);
 
-    if (!admin || admin.role !== 'admin') {
-      return res.status(403).json({ success: false, error: 'Admin access required' });
+        if (!admin || admin.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                error: 'Admin access required'
+            });
+        }
+
+        // Find archived account
+        const deletedUser = await DeletedUser.findById(req.params.id);
+
+        if (!deletedUser) {
+            return res.status(404).json({
+                success: false,
+                error: 'Deleted user not found'
+            });
+        }
+
+        // Check if the email is already registered
+        const existingUser = await User.findOne({
+            email: deletedUser.email
+        });
+
+        if (existingUser) {
+            return res.status(409).json({
+                success: false,
+                error: 'This email is already registered to another account. The deleted account cannot be restored until the email conflict is resolved.'
+            });
+        }
+
+        // Restore the original account
+        const restoredUser = new User({
+            name: deletedUser.name,
+            email: deletedUser.email,
+            password: deletedUser.password,
+            role: deletedUser.role,
+            lastLogin: deletedUser.lastLogin,
+            lastSeen: deletedUser.lastSeen,
+            loginCount: deletedUser.loginCount,
+            time: deletedUser.time,
+            createdAt: deletedUser.createdAt
+        });
+
+        await restoredUser.save();
+
+        // Remove archive only after successful restore
+        await DeletedUser.deleteOne({ _id: deletedUser._id });
+
+        return res.json({
+            success: true,
+            message: 'User account restored successfully.'
+        });
+
+    } catch (error) {
+        console.error('Restore user error:', error);
+
+        // MongoDB duplicate-key protection
+        if (error.code === 11000) {
+            return res.status(409).json({
+                success: false,
+                error: 'This email is already registered. The account could not be restored.'
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            error: 'Server error while restoring user.'
+        });
     }
-
-    const user = await User.findOne({
-      _id: req.params.id,
-      role: 'user',
-      isDeleted: true
-    });
-
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'Deleted user not found' });
-    }
-
-    user.isDeleted = false;
-    user.deletedAt = null;
-    await user.save();
-
-    res.json({ success: true, message: 'User restored successfully' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
 });
+
 
 
 
@@ -311,7 +401,6 @@ router.get('/admin/stats', fectchuser, async (req, res) => {
     lastMonth.setDate(lastMonth.getDate() - 30);
 
     const [
-      totalUsers,
       onlineUsers,
       loginEvents24h,
       uniqueUsers24h
@@ -578,6 +667,14 @@ router.get('/admin/stats', fectchuser, async (req, res) => {
       },
       { $sort: { totalNotes: -1 } }
     ]);
+    const deletedUsers = await DeletedUser.find()
+    .select('-password')
+    .sort({ deletedAt: -1 })
+    .lean();
+    const totalUsers = await User.find({
+  role: 'user',
+  isDeleted: { $ne: true }
+});
 
 
 
@@ -603,7 +700,10 @@ router.get('/admin/stats', fectchuser, async (req, res) => {
       totalNotes,
       newNotes24h,
       newNotesMonth,
-      notesByUser
+      notesByUser,
+
+      //delete 
+       deletedUsers
     });
   } catch (error) {
     console.error(error.message);
