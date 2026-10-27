@@ -2,30 +2,43 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 const UserSchema = new Schema({
-  name :{
-    type:  String,
-    required : true
-  },
-  email : {
+  name: {
     type: String,
-    required : true,
-    unique : true
+    required: true
   },
-  password : {
+  email: {
     type: String,
-    required : true
+    required: true,
+    unique: true
   },
-  time:{
-     type : Date,
+  password: {
+    type: String,
+    required: true
+  },
+  time: {
+    type: Date,
     default: Date.now
   },
   role: {
     type: String,
     enum: ['user', 'admin'],
     default: 'user'
+  },
+  lastLogin: {
+    type: Date,
+    default: null
+  },
+  lastSeen: {
+    type: Date,
+    default: null
+  },
+  loginCount: {
+    type: Number,
+    default: 0
   }
-  }
-);
+}, {
+  timestamps: true
+});
 const User = mongoose.model('User' , UserSchema);
 User.createIndexes()
 module.exports = User
