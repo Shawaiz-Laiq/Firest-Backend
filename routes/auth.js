@@ -115,9 +115,93 @@ router.post('/login', [
   }
 })
 
+router.delete('/delete-account', fectchuser, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user || user.role === 'admin') {
+      return res.status(404).json({
+        success: false,
+        error: 'Account not found'
+      });
+    }
+
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Account moved to Deleted Users'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
+});
 
 
+// Move user to Deleted Users
+router.delete('/admin/delete-user/:id', fectchuser, async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
 
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    const user = await User.findOne({
+      _id: req.params.id,
+      role: 'user',
+      isDeleted: false
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+    await user.save();
+
+    res.json({ success: true, message: 'User moved to Deleted Users' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+
+// Restore user
+router.put('/admin/restore-user/:id', fectchuser, async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id);
+
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    const user = await User.findOne({
+      _id: req.params.id,
+      role: 'user',
+      isDeleted: true
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Deleted user not found' });
+    }
+
+    user.isDeleted = false;
+    user.deletedAt = null;
+    await user.save();
+
+    res.json({ success: true, message: 'User restored successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
 
 
 
