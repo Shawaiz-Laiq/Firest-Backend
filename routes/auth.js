@@ -114,4 +114,83 @@ try {
 })
 
 
+/* ADMIN LOGIN */
+router.post('/admin/login', [
+  body('email', 'Enter a valid email').isEmail(),
+  body('password', 'Password is required').exists()
+], async (req, res) => {
+  const errors = validationResult(req);
+
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user || user.role !== 'admin') {
+      return res.status(401).json({
+        success: false,
+        error: 'Admin credentials are incorrect'
+      });
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        success: false,
+        error: 'Admin credentials are incorrect'
+      });
+    }
+
+    const data = {
+      user: {
+        id: user.id
+      }
+    };
+
+    const jwtdata = jwt.sign(data, sec);
+
+    return res.json({
+      success: true,
+      jwtdata
+    });
+
+  } catch (error) {
+    console.error(error.message);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+/* ADMIN DASHBOARD STATS */
+router.get('/admin/stats', fectchuser, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('role');
+
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin access required'
+      });
+    }
+
+    const totalUsers = await User.countDocuments();
+
+    return res.json({
+      success: true,
+      totalUsers,
+      totalAccounts: totalUsers
+    });
+
+  } catch (error) {
+    console.error(error.message);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+
 module.exports = router;
