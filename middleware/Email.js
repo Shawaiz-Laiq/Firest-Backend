@@ -1,7 +1,31 @@
-
 const { transporter } = require("./Emailconfiq");
+const EmailLog = require("../models/EmailLog");
 
-const SendVerfication = async (email, verficationC, name) => {
+
+const SaveEmailLog = async ({
+  email,
+  type,
+  status,
+  messageId = null,
+  error = null,
+  userId = null
+}) => {
+  try {
+    await EmailLog.create({
+      email: email.trim().toLowerCase(),
+      type,
+      status,
+      messageId,
+      error,
+      userId
+    });
+  } catch (logError) {
+    console.error("Email log save failed:", logError.message);
+  }
+};
+
+
+const SendVerfication = async (email, verficationC, name ,  userId = null) => {
   try {
     const info = await transporter.sendMail({
       from: `"iNotebook" <${process.env.SMTP_USER}>`,
@@ -87,19 +111,34 @@ The iNotebook Team`,
         </div>
       `,
     });
+        await saveEmailLog({
+            email,
+            type: "verification",
+            status: "sent",
+            messageId: info.messageId,
+            userId
+        });
 
     console.log("Verification email sent successfully:", info.messageId);
     return { success: true };
+} catch (err) {
+  console.error("Verification email error:", err.message);
 
-  } catch (err) {
-    console.error("Verification email error:", err.message);
-    return { success: false };
+  await saveEmailLog({
+    email,
+    type: "verification",
+    status: "failed",
+    error: err.message,
+    userId: userId || null
+  });
+
+  return { success: false };
+}
   }
 
-};
 
 
-const SendPasswordResetEmail = async (email, code, name) => {
+const SendPasswordResetEmail = async (email, code, name, userId = null) => {
   try {
     const info = await transporter.sendMail({
       from: `"iNotebook" <${process.env.SMTP_USER}>`,
@@ -123,6 +162,13 @@ If you did not request this, please ignore this email.`,
         </div>
       `
     });
+    await saveEmailLog({
+  email,
+  type: "password-reset",
+  status: "sent",
+  messageId: info.messageId,
+  userId
+});
 
     console.log("RESET EMAIL SENT:", info.messageId);
 

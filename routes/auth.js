@@ -55,7 +55,12 @@ router.post('/createuser', [
       password: secPass,
       verficationCode
     })
-   await SendVerfication(user.email, verficationCode, user.name);
+   await SendVerfication(
+  user.email,
+  verficationCode,
+  user.name,
+  user._id
+);
   return res.status(201).json({
   success: true,
   message: "Account created. Please verify your email."
@@ -266,11 +271,12 @@ const code = crypto.randomInt(100000, 1000000).toString();
     await user.save();
 
     // 4. Sirf database mein mile hue account ko email bhejo
-    const result = await SendPasswordResetEmail(
-      user.email,
-      code,
-      user.name
-    );
+   const result = await SendPasswordResetEmail(
+  user.email,
+  code,
+  user.name,
+  user._id
+);
 console.log("Email send result:", result);
     // 5. Email fail ho to reset code clear karo
     
@@ -1029,6 +1035,76 @@ const uniqueUsers24h = uniqueUserIds24h.length;
     });
   }
 });
+
+
+
+/* ADMIN EMAIL HISTORY */
+router.get('/admin/email-history', fectchuser, async (req, res) => {
+  try {
+    // 1. Check whether the logged-in user is an admin
+    const admin = await User.findById(req.user.id).select('role');
+
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    // 2. Read pagination parameters
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit, 10) || 20)
+    );
+
+    // 3. Fetch email history
+    const EmailLog = require('../models/EmailLog');
+
+    const [emails, totalEmails] = await Promise.all([
+      EmailLog.find()
+        .sort({ sentAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate('userId', 'name email')
+        .lean(),
+
+      EmailLog.countDocuments()
+    ]);
+
+    // 4. Return history and summary
+    const summary = await EmailLog.aggregate([
+      {
+        $group: {
+          _id: {
+            type: '$type',
+            status: '$status'
+          },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    return res.json({
+      success: true,
+      totalEmails,
+      page,
+      limit,
+      totalPages: Math.ceil(totalEmails / limit),
+      summary,
+      emails
+    });
+
+  } catch (error) {
+    console.error('Admin email history error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to fetch email history'
+    });
+  }
+});
+
 
 
 router.get('/admin/notes-history', fectchuser, async (req, res) => {
