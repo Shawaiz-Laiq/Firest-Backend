@@ -95,6 +95,36 @@ The iNotebook Team`,
     console.error("Verification email error:", err.message);
     return { success: false };
   }
+
 };
 
-module.exports = { SendVerfication };
+const SendPasswordResetEmail = async (email, code, name) => {
+  try {
+    await transporter.sendMail({
+      from: `"iNotebook" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "Reset Your iNotebook Password",
+      text: `Hi ${name}, your password reset code is ${code}. It expires in 10 minutes.`,
+      html: `
+        <div style="font-family:Arial,sans-serif;padding:24px">
+          <h2>iNotebook Password Reset</h2>
+          <p>Hi ${name},</p>
+          <p>Use this code to reset your password:</p>
+          <h1 style="letter-spacing:8px">${code}</h1>
+          <p>This code expires in 10 minutes.</p>
+          <p>If you did not request this, you can ignore this email.</p>
+        </div>
+      `
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Password reset email error:", error.message);
+    return { success: false };
+  }
+};
+
+module.exports = {
+  SendVerfication,
+  SendPasswordResetEmail
+};
