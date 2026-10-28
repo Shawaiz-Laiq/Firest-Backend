@@ -216,9 +216,9 @@ router.post('/login', [
 
 
   
+
 router.post("/forgot-password", async (req, res) => {
-  const genericMessage =
-    "If an account exists for this email, a reset code will be sent.";
+ 
 
   try {
     const email = req.body.email?.trim().toLowerCase();
@@ -230,56 +230,69 @@ router.post("/forgot-password", async (req, res) => {
       });
     }
 
-    // 1. Check whether account exists
-    const user = await User.findOne({ email });
+    // 1. Database mein account check karo
+  
+const user = await User.findOne({ email });
 
-    if (!user || user.isDeleted) {
-      return res.json({
-        success: true,
-        message: genericMessage
-      });
-    }
+// 1. Account exist nahi karta
+// if (user.isVerified === true) {
+//   return res.json({
+//     success: true,
+//     message:
+//       "If an active account exists for this email, a reset code will be sent verfication par."
+//   });
+// }
 
-    // 2. Generate 6-digit reset code
-    const code = crypto.randomInt(100000, 1000000).toString();
+// 2. Account deleted ya inactive hai
+if (user.isDeleted === true) {
+  return res.json({
+    success: true,
+    message:
+      "If an active account exists for this email, a reset code will be sent delete par."
+  });
+}
 
-    // 3. Save hashed code and expiry
+// 3. Account active hai — ab reset code generate karo
+const code = crypto.randomInt(100000, 1000000).toString();
+
+
     user.resetPasswordCode = crypto
       .createHash("sha256")
       .update(code)
       .digest("hex");
 
-    user.resetPasswordExpires = new Date(
-      Date.now() + 10 * 60 * 1000
-    );
+    user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
 
     await user.save();
 
-    // 4. Send reset code by email
+    // 4. Sirf database mein mile hue account ko email bhejo
     const result = await SendPasswordResetEmail(
       user.email,
       code,
       user.name
     );
+console.log("Email send result:", result);
+    // 5. Email fail ho to reset code clear karo
+    
+if (!result || !result.success) {
+  console.error("Forgot password failed at: SendPasswordResetEmail");
+  console.error("Email service error:", result?.error || result?.message || "Unknown email error");
 
-    // 5. If email fails, clear reset code
-    if (!result?.success) {
-      console.error("Password reset email failed");
+  user.resetPasswordCode = null;
+  user.resetPasswordExpires = null;
+  await user.save();
 
-      user.resetPasswordCode = null;
-      user.resetPasswordExpires = null;
-      await user.save();
+  return res.status(500).json({
+    success: false,
+    stage: "send_password_reset_email",
+    message: "Unable to send the reset email.",
+    reason: result?.error || result?.message || "Email service failed. Check Vercel Runtime Logs."
+  });
+}
 
-      return res.status(500).json({
-        success: false,
-        message: "Unable to send the email. Please try again."
-      });
-    }
-
-    // 6. Success response
     return res.json({
       success: true,
-      message: genericMessage
+     
     });
 
   } catch (error) {

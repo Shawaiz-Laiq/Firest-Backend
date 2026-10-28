@@ -98,43 +98,52 @@ The iNotebook Team`,
 
 };
 
+
 const SendPasswordResetEmail = async (email, code, name) => {
   try {
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: `"iNotebook" <${process.env.SMTP_USER}>`,
       to: email,
       subject: "Reset Your iNotebook Password",
-      text: `Hi ${name}, your password reset code is ${code}. It expires in 10 minutes.`,
+      text: `Hi ${name},
+
+Your iNotebook password reset code is: ${code}
+
+This code expires in 10 minutes.
+
+If you did not request this, please ignore this email.`,
       html: `
         <div style="font-family:Arial,sans-serif;padding:24px">
           <h2>iNotebook Password Reset</h2>
           <p>Hi ${name},</p>
-          <p>Use this code to reset your password:</p>
+          <p>Your password reset code is:</p>
           <h1 style="letter-spacing:8px">${code}</h1>
           <p>This code expires in 10 minutes.</p>
-          <p>If you did not request this, you can ignore this email.</p>
+          <p>If you did not request this, ignore this email.</p>
         </div>
       `
     });
 
-    return { success: true };
- } catch (error) {
-  console.error("Password reset email error:", {
-    message: error.message,
-    code: error.code,
-    response: error.response,
-    command: error.command
-  });
+    console.log("RESET EMAIL SENT:", info.messageId);
 
-  return {
-    success: false,
-    error: error.message,
-    code: error.code
-  };
-}
-}
+    return { success: true };
+
+  } catch (error) {
+    console.error("RESET EMAIL FAILED:", error.message);
+    console.error("SMTP ERROR CODE:", error.code);
+    console.error("SMTP RESPONSE:", error.response);
+
+    return {
+      success: false,
+      error: error.message,
+      code: error.code || null
+    };
+  }
+};
+
+
 
 module.exports = {
-  SendVerfication,
-  SendPasswordResetEmail
+    SendPasswordResetEmail,
+    SendVerfication
 };
