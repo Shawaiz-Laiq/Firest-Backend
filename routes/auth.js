@@ -128,36 +128,61 @@ router.post("/verify-email", async (req, res) => {
 });
 
 
+
 router.post('/login', [
-  body('email', "enter a vaild email").isEmail(),
-  // body('name', "Enter a vaild name").isLength({min: 3}),
-  body('password', "password must 3 digits long").exists(),
+  body('email', "enter a valid email").isEmail(),
+  body('password', "password is required").exists(),
 ], async (req, res) => {
-  let success = false;
   const errors = validationResult(req);
+
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() })
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
   }
-  const { email, password } = req.body
+
+  const { email, password } = req.body;
+
   try {
-    let user = await User.findOne({ email });
+    const user = await User.findOne({
+      email: email.toLowerCase().trim()
+    });
+
     if (!user) {
-      success = false
-      return res.status(400).json({ success, error: "please try to login with corrcet credentials" })
+      return res.status(400).json({
+        success: false,
+        error: "Please try to login with correct credentials"
+      });
     }
-    const passwordC = await bcrypt.compare(password, user.password)
+
+    const passwordC = await bcrypt.compare(password, user.password);
+
     if (!passwordC) {
-      success = false
-      return res.status(400).json({ success, error: "please try to login with corrcet credentials" })
+      return res.status(400).json({
+        success: false,
+        error: "Please try to login with correct credentials"
+      });
     }
+
+    // IMPORTANT: Email verification check
+    if (user.isVerified !== true) {
+      return res.status(403).json({
+        success: false,
+        requiresVerification: true,
+        email: user.email,
+        message: "Please verify your email before logging in."
+      });
+    }
+
+    // Verified user ke liye hi JWT generate hoga
     const data = {
       user: {
         id: user.id
       }
-    }
-    const jwtdata = jwt.sign(data, sec);
-    success = true
+    };
 
+    const jwtdata = jwt.sign(data, sec);
 
     user.lastLogin = new Date();
     user.lastSeen = new Date();
@@ -167,19 +192,27 @@ router.post('/login', [
 
     await LoginActivity.create({
       user: user._id
-      
     });
+
     console.log("LOGIN ACTIVITY SAVED FOR:", user.email);
 
     const activityCount = await LoginActivity.countDocuments();
     console.log("TOTAL LOGIN ACTIVITIES:", activityCount);
 
-    res.json({ success, jwtdata })
+    return res.json({
+      success: true,
+      jwtdata
+    });
+
   } catch (error) {
-    console.error(error.message);
-    res.status(500).send("server error")
+    console.error("Login error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Server error"
+    });
   }
-})
+});
+
 
 
 router.delete('/delete-account', fectchuser, async (req, res) => {
