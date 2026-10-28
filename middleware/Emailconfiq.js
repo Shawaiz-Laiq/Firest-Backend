@@ -14,6 +14,17 @@ const transporter = nodemailer.createTransport({
     pass: process.env.SMTP_PASS,
   },
 });
+transporter.verify()
+  .then(() => {
+    console.log("SMTP connection successful");
+  })
+  .catch((error) => {
+    console.error("SMTP connection failed:", {
+      message: error.message,
+      code: error.code,
+      responseCode: error.responseCode
+    });
+  });
 
 // Export transporter for Email.js
 module.exports = { transporter };

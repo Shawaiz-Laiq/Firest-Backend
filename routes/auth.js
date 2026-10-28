@@ -215,151 +215,156 @@ router.post('/login', [
 });
 
 
-router.post("/forgot-password", async (req, res) => {
-  const genericMessage =
-    "If an eligible account exists for this email, a reset code will be sent.";
+  router.post("/forgot-password", async (req, res) => {
+    const genericMessage =
+      "If an eligible account exists for this email, a reset code will be sent.";
 
-  try {
-    const email = req.body.email?.trim().toLowerCase();
+    try {
+      const email = req.body.email?.trim().toLowerCase();
 
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "Email is required."
-      });
-    }
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: "Email is required."
+        });
+      }
 
-    const user = await User.findOne({ email });
+      const user = await User.findOne({ email });
 
-    // Same response for unknown or unverified accounts
-    if (!user || user.isVerified !== true) {
+      // Same response for unknown or unverified accounts
+      if (!user || user.isVerified !== true) {
+        return res.json({
+          success: true,
+          message: genericMessage
+        });
+      }
+
+      // Six-digit OTP
+      const code = crypto.randomInt(100000, 1000000).toString();
+
+      // Store a hash, not the actual OTP
+      user.resetPasswordCode = crypto
+        .createHash("sha256")
+        .update(code)
+        .digest("hex");
+
+      user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+      await user.save();
+
+      const result = await SendPasswordResetEmail(
+        user.email,
+        code,
+        user.name
+      );
+
+      if (!result?.success) {
+  console.error(
+    "Password reset email failed:",
+    result?.error || result?.message || "Unknown email error"
+  );
+
+  user.resetPasswordCode = null;
+  user.resetPasswordExpires = null;
+  await user.save();
+
+  return res.status(500).json({
+    success: false,
+    message: "Unable to send the email. Please try again."
+  });
+}
+
       return res.json({
         success: true,
         message: genericMessage
       });
-    }
-
-    // Six-digit OTP
-    const code = crypto.randomInt(100000, 1000000).toString();
-
-    // Store a hash, not the actual OTP
-    user.resetPasswordCode = crypto
-      .createHash("sha256")
-      .update(code)
-      .digest("hex");
-
-    user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
-
-    await user.save();
-
-    const result = await SendPasswordResetEmail(
-      user.email,
-      code,
-      user.name
-    );
-
-    if (!result.success) {
-      user.resetPasswordCode = null;
-      user.resetPasswordExpires = null;
-      await user.save();
+    } catch (error) {
+      console.error("Forgot password error:", error);
 
       return res.status(500).json({
         success: false,
-        message: "Unable to send the email. Please try again."
+        message: "Something went wrong. Please try again."
       });
     }
-
-    return res.json({
-      success: true,
-      message: genericMessage
-    });
-  } catch (error) {
-    console.error("Forgot password error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Something went wrong. Please try again."
-    });
-  }
-});
+  });
 
 
 
-router.post("/reset-password", async (req, res) => {
-  try {
-    const email = req.body.email?.trim().toLowerCase();
-    const code = String(req.body.code || "").trim();
-    const { newPassword } = req.body;
+  router.post("/reset-password", async (req, res) => {
+    try {
+      const email = req.body.email?.trim().toLowerCase();
+      const code = String(req.body.code || "").trim();
+      const { newPassword } = req.body;
 
-    if (!email || !code || !newPassword) {
-      return res.status(400).json({
+      if (!email || !code || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: "Email, code and new password are required."
+        });
+      }
+
+      if (!/^\d{6}$/.test(code)) {
+        return res.status(400).json({
+          success: false,
+          message: "Enter a valid 6-digit code."
+        });
+      }
+
+      if (newPassword.length < 8) {
+        return res.status(400).json({
+          success: false,
+          message: "Password must be at least 8 characters long."
+        });
+      }
+
+      const user = await User.findOne({ email });
+
+      if (
+        !user ||
+        !user.resetPasswordCode ||
+        !user.resetPasswordExpires ||
+        user.resetPasswordExpires.getTime() <= Date.now()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired reset code. Request a new one."
+        });
+      }
+
+      const submittedHash = crypto
+        .createHash("sha256")
+        .update(code)
+        .digest("hex");
+
+      if (submittedHash !== user.resetPasswordCode) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired reset code. Request a new one."
+        });
+      }
+
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(newPassword, salt);
+
+      // OTP is single-use
+      user.resetPasswordCode = null;
+      user.resetPasswordExpires = null;
+
+      await user.save();
+
+      return res.json({
+        success: true,
+        message: "Password reset successfully. Please log in."
+      });
+    } catch (error) {
+      console.error("Reset password error:", error);
+
+      return res.status(500).json({
         success: false,
-        message: "Email, code and new password are required."
+        message: "Something went wrong. Please try again."
       });
     }
-
-    if (!/^\d{6}$/.test(code)) {
-      return res.status(400).json({
-        success: false,
-        message: "Enter a valid 6-digit code."
-      });
-    }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({
-        success: false,
-        message: "Password must be at least 8 characters long."
-      });
-    }
-
-    const user = await User.findOne({ email });
-
-    if (
-      !user ||
-      !user.resetPasswordCode ||
-      !user.resetPasswordExpires ||
-      user.resetPasswordExpires.getTime() <= Date.now()
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired reset code. Request a new one."
-      });
-    }
-
-    const submittedHash = crypto
-      .createHash("sha256")
-      .update(code)
-      .digest("hex");
-
-    if (submittedHash !== user.resetPasswordCode) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired reset code. Request a new one."
-      });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
-
-    // OTP is single-use
-    user.resetPasswordCode = null;
-    user.resetPasswordExpires = null;
-
-    await user.save();
-
-    return res.json({
-      success: true,
-      message: "Password reset successfully. Please log in."
-    });
-  } catch (error) {
-    console.error("Reset password error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Something went wrong. Please try again."
-    });
-  }
-});
+  });
 
 
 

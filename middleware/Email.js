@@ -119,13 +119,20 @@ const SendPasswordResetEmail = async (email, code, name) => {
 
     return { success: true };
  } catch (error) {
-  console.error("Password reset email error:", error);
-  console.error("Email error code:", error.code);
-  console.error("Email response:", error.response);
+  console.error("Password reset email error:", {
+    message: error.message,
+    code: error.code,
+    response: error.response,
+    command: error.command
+  });
 
-  return { success: false };
+  return {
+    success: false,
+    error: error.message,
+    code: error.code
+  };
 }
-};
+}
 
 module.exports = {
   SendVerfication,
