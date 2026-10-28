@@ -54,11 +54,10 @@ router.post('/createuser', [
       verficationCode
     })
    await SendVerfication(user.email, verficationCode, user.name);
-    const data = {
-      user: {
-        id: user.id
-      }
-    }
+  return res.status(201).json({
+  success: true,
+  message: "Account created. Please verify your email."
+});
     const jwtdata = jwt.sign(data, sec);
     console.log(jwtdata)
     res.json({ jwtdata })
