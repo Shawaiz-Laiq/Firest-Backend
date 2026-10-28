@@ -43,7 +43,12 @@ const UserSchema = new Schema({
   deletedAt: {
    type: Date,
    default: null
- }
+ },
+  isVerified: {
+    type: Boolean,
+    default: false
+ },
+verficationCode:String
 }, {
   timestamps: true
 });

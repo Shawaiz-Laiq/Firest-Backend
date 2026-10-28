@@ -12,6 +12,7 @@ const NoteActivity = require('../models/NoteActivity');
 const Note = require('../models/Note');
 const DeletedUser = require('../models/DeletedUser');
 const NoteHistory = require('../models/NoteHistory');
+const {SendVerfication} = require("../middleware/Email");
 
 
 
@@ -30,6 +31,7 @@ router.post('/createuser', [
   try {
     let user = await User.findOne({ email: req.body.email });
     let existingName = await User.findOne({ name: req.body.name });
+    const verficationCode = Math.floor(100000 + Math.random()* 900000).toString()
     if (user && existingName) {
       return res.status(400).json({ errors: "acoount already exists , This name is already taken" })
     }
@@ -49,7 +51,9 @@ router.post('/createuser', [
       name: req.body.name,
       email: req.body.email,
       password: secPass,
+      verficationCode
     })
+   await SendVerfication(user.email, verficationCode, user.name);
     const data = {
       user: {
         id: user.id
@@ -66,6 +70,63 @@ router.post('/createuser', [
   }
 
 })
+
+
+router.post("/verify-email", async (req, res) => {
+  try {
+    const { email, verficationCode } = req.body;
+
+    if (!email || !verficationCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and verification code are required."
+      });
+    }
+
+    const user = await User.findOne({
+      email: email.toLowerCase().trim()
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Account not found."
+      });
+    }
+
+    if (user.isVerified) {
+      return res.json({
+        success: true,
+        message: "Your email is already verified."
+      });
+    }
+
+    if (user.verficationCode !== verficationCode.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect verification code. Please try again."
+      });
+    }
+
+    user.isVerified = true;
+    user.verficationCode = undefined;
+
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "Email verified successfully! You can now log in."
+    });
+
+  } catch (error) {
+    console.error("Email verification error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong. Please try again."
+    });
+  }
+});
+
 
 router.post('/login', [
   body('email', "enter a vaild email").isEmail(),
