@@ -215,78 +215,83 @@ router.post('/login', [
 });
 
 
-  router.post("/forgot-password", async (req, res) => {
-    const genericMessage =
-      "If an eligible account exists for this email, a reset code will be sent.";
+  
+router.post("/forgot-password", async (req, res) => {
+  const genericMessage =
+    "If an account exists for this email, a reset code will be sent.";
 
-    try {
-      const email = req.body.email?.trim().toLowerCase();
+  try {
+    const email = req.body.email?.trim().toLowerCase();
 
-      if (!email) {
-        return res.status(400).json({
-          success: false,
-          message: "Email is required."
-        });
-      }
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required."
+      });
+    }
 
-      const user = await User.findOne({ email });
+    // 1. Check whether account exists
+    const user = await User.findOne({ email });
 
-      // Same response for unknown or unverified accounts
-      if (!user || user.isVerified !== true) {
-        return res.json({
-          success: true,
-          message: genericMessage
-        });
-      }
-
-      // Six-digit OTP
-      const code = crypto.randomInt(100000, 1000000).toString();
-
-      // Store a hash, not the actual OTP
-      user.resetPasswordCode = crypto
-        .createHash("sha256")
-        .update(code)
-        .digest("hex");
-
-      user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
-
-      await user.save();
-
-      const result = await SendPasswordResetEmail(
-        user.email,
-        code,
-        user.name
-      );
-
-      if (!result?.success) {
-  console.error(
-    "Password reset email failed:",
-    result?.error || result?.message || "Unknown email error"
-  );
-
-  user.resetPasswordCode = null;
-  user.resetPasswordExpires = null;
-  await user.save();
-
-  return res.status(500).json({
-    success: false,
-    message: "Unable to send the email. Please try again."
-  });
-}
-
+    if (!user || user.isDeleted) {
       return res.json({
         success: true,
         message: genericMessage
       });
-    } catch (error) {
-      console.error("Forgot password error:", error);
+    }
+
+    // 2. Generate 6-digit reset code
+    const code = crypto.randomInt(100000, 1000000).toString();
+
+    // 3. Save hashed code and expiry
+    user.resetPasswordCode = crypto
+      .createHash("sha256")
+      .update(code)
+      .digest("hex");
+
+    user.resetPasswordExpires = new Date(
+      Date.now() + 10 * 60 * 1000
+    );
+
+    await user.save();
+
+    // 4. Send reset code by email
+    const result = await SendPasswordResetEmail(
+      user.email,
+      code,
+      user.name
+    );
+
+    // 5. If email fails, clear reset code
+    if (!result?.success) {
+      console.error("Password reset email failed");
+
+      user.resetPasswordCode = null;
+      user.resetPasswordExpires = null;
+      await user.save();
 
       return res.status(500).json({
         success: false,
-        message: "Something went wrong. Please try again."
+        message: "Unable to send the email. Please try again."
       });
     }
-  });
+
+    // 6. Success response
+    return res.json({
+      success: true,
+      message: genericMessage
+    });
+
+  } catch (error) {
+    console.error("Forgot password error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong. Please try again."
+    });
+  }
+});
+
 
 
 
