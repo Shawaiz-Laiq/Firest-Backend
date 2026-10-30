@@ -15,6 +15,8 @@ const NoteHistory = require('../models/NoteHistory');
 const {SendVerfication} = require("../middleware/Email");
 const crypto = require("crypto");
 const { SendPasswordResetEmail } = require("../middleware/Email");
+const SentNote = require('../models/SentNote');
+const SendAttempt = require('../models/SendAttempt');
 
 
 
@@ -72,7 +74,7 @@ router.post('/createuser', [
     // res.json(user) 
   } catch (error) {
     console.error(error.message);
-    res.status(500).send("ye kya howa")
+    res.status(500).send("error")
   }
 
 })
@@ -1174,4 +1176,154 @@ router.get('/admin/notes-history', fectchuser, async (req, res) => {
 
 
 
+router.get('/find-user', fectchuser, async (req, res) => {
+  try {
+    const query = req.query.query?.trim();
+
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username is required'
+      });
+    }
+
+    // Search input se spaces remove karo
+    const search = query.replace(/\s+/g, '');
+
+    const users = await User.find({
+      _id: { $ne: req.user.id },
+      isDeleted: { $ne: true },
+      $or: [
+        { name: { $regex: search.split('').join('\\s*'), $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ]
+    }).select('_id name email').limit(10);
+
+    if (!users.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    return res.json({
+      success: true,
+      user: users[0],
+      users
+    });
+
+  } catch (error) {
+    console.error('Find user error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
+
+
+/* ADMIN SEND & RECEIVE NOTES HISTORY */
+router.get('/admin/sendnotes-history', fectchuser, async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id).select('role');
+
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit, 10) || 20)
+    );
+
+    const [notes, totalNotes] = await Promise.all([
+      SentNote.find()
+        .sort({ sentAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+
+      SentNote.countDocuments()
+    ]);
+
+    const [totalSent, totalReceived, totalRead, totalUnread] =
+      await Promise.all([
+        SentNote.countDocuments(),
+        SentNote.countDocuments(),
+        SentNote.countDocuments({ isRead: true }),
+        SentNote.countDocuments({ isRead: { $ne: true } })
+      ]);
+
+    return res.json({
+      success: true,
+      totalNotes,
+      totalSent,
+      totalReceived,
+      totalRead,
+      totalUnread,
+      page,
+      limit,
+      totalPages: Math.ceil(totalNotes / limit),
+      notes: notes.map(note => ({
+        _id: note._id,
+        sender: note.sender,
+        senderName: note.senderName,
+        receiver: note.receiver,
+        receiverName: note.receiverName,
+        title: note.title,
+        description: note.description,
+        sentAt: note.sentAt,
+        isRead: note.isRead,
+        readAt: note.readAt,
+        status: note.isRead ? 'Read' : 'Unread'
+      }))
+    });
+
+  } catch (error) {
+    console.error('Admin send notes history error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to fetch send notes history'
+    });
+  }
+});
+
+router.get('/admin/send-attempts', fectchuser, async (req, res) => {
+  try {
+    const admin = await User.findById(req.user.id).select('role');
+
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const attempts = await SendAttempt.find()
+      .populate('sender', 'name email')
+      .sort({ attemptedAt: -1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      totalAttempts: attempts.length,
+      attempts
+    });
+
+  } catch (error) {
+    console.error('Send attempts error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 module.exports = router;
+
