@@ -1325,5 +1325,18 @@ router.get('/admin/send-attempts', fectchuser, async (req, res) => {
   }
 });
 
+router.get('/admin/notehistory', fectchuser, async (req, res) => {
+  try {
+    const history = await NoteHistory.find()
+      .sort({ deletedAt: -1 });
+
+    res.json(history);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
 
