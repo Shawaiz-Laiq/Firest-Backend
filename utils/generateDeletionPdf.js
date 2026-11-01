@@ -1,4 +1,5 @@
-const PDFDocument = require("pdfkit");
+
+const PDFDocument = require("pdfkit/js/pdfkit.standalone");
 
 const generateDeletionPdf = async ({
     user,
