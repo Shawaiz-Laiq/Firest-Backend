@@ -1,141 +1,91 @@
-
 const PDFDocument = require("pdfkit");
 
-const generateDeletionPdf = async ({
-    user,
-    notes = [],
-    sentNotes = [],
-    receivedNotes = [],
-    deletionType,
-    deletedAt
-}) => {
+const generateDeletionPdf = (data) => {
     return new Promise((resolve, reject) => {
         try {
+            const { user, notes = [], sentNotes = [], receivedNotes = [], deletionType, deletedAt } = data;
+
             const doc = new PDFDocument({
                 margin: 50,
-                size: "A4"
+                size: 'A4',
+                bufferPages: true
             });
 
-            const chunks = [];
-
-            doc.on("data", chunk => chunks.push(chunk));
-
-            doc.on("end", () => {
-                resolve(Buffer.concat(chunks));
+            const buffers = [];
+            doc.on('data', (chunk) => buffers.push(chunk));
+            doc.on('end', () => {
+                const pdfData = Buffer.concat(buffers);
+                console.log("PDF generated successfully, size:", pdfData.length);
+                resolve(pdfData);
+            });
+            doc.on('error', (err) => {
+                console.error("PDF doc error:", err);
+                reject(err);
             });
 
-            doc.on("error", reject);
+            // --- CONTENT START ---
+            doc.fontSize(20).text('iNotebook - Account Data Archive', { align: 'center' });
+            doc.moveDown(1);
 
-            const formatDate = (date) => {
-                if (!date) return "Not available";
-                return new Date(date).toLocaleString("en-US");
-            };
+            doc.fontSize(12);
+            doc.text(`Name: ${user?.name || 'N/A'}`);
+            doc.text(`Email: ${user?.email || 'N/A'}`);
+            doc.text(`User ID: ${user?._id || 'N/A'}`);
+            doc.text(`Deletion Date: ${deletedAt ? new Date(deletedAt).toLocaleString() : new Date().toLocaleString()}`);
+            doc.text(`Deletion Type: ${deletionType || 'user_request'}`);
+            doc.moveDown(1);
 
-            const addSection = (heading) => {
-                doc.moveDown(1);
-                doc.fontSize(16).fillColor("#1d4ed8").text(heading);
-                doc.moveDown(0.5);
-                doc.fontSize(10).fillColor("#222222");
-            };
-
-            const addEntry = (label, value) => {
-                doc.font("Helvetica-Bold").text(`${label}: `, {
-                    continued: true
+            doc.fontSize(14).text(`Personal Notes (${notes.length})`, { underline: true });
+            doc.moveDown(0.5);
+            doc.fontSize(10);
+            if (notes.length === 0) {
+                doc.text('No personal notes found.');
+            } else {
+                notes.slice(0, 100).forEach((n, i) => {
+                    doc.text(`${i + 1}. ${n.title || 'Untitled'} | ${n.time ? new Date(n.time).toLocaleDateString() : ''}`);
+                    if (n.description) {
+                        doc.text(`   ${n.description.substring(0, 300)}`, { indent: 10 });
+                    }
+                    doc.moveDown(0.3);
+                    if (doc.y > 700) { doc.addPage(); }
                 });
-
-                doc.font("Helvetica").text(
-                    String(value ?? "Not available")
-                );
-            };
-
-            // PDF Heading
-            doc.fontSize(22)
-                .fillColor("#111827")
-                .text("iNotebook - Account Data Archive", {
-                    align: "center"
-                });
+            }
 
             doc.moveDown(1);
-            doc.end();
-    console.log("PDF doc.end() called");
-
-            // Account Details
-            addSection("Account Details");
-
-            addEntry("User ID", user._id);
-            addEntry("Name", user.name);
-            addEntry("Email", user.email);
-            addEntry("Account Created", formatDate(user.createdAt));
-            addEntry("Deletion Date", formatDate(deletedAt));
-            addEntry("Deletion Type", deletionType);
-
-            // Personal Notes
-            addSection(`Personal Notes (${notes.length})`);
-
-            if (notes.length === 0) {
-                doc.text("No personal notes found.");
-            }
-
-            notes.forEach((note, index) => {
-                doc.moveDown(0.5);
-                doc.font("Helvetica-Bold")
-                    .text(`${index + 1}. ${note.title}`);
-
-                doc.font("Helvetica")
-                    .text(note.description);
-
-                addEntry("Created", formatDate(note.time));
-            });
-
-            // Sent Notes
-            addSection(`Sent Notes (${sentNotes.length})`);
-
+            doc.fontSize(14).text(`Sent Notes (${sentNotes.length})`, { underline: true });
+            doc.moveDown(0.5);
+            doc.fontSize(10);
             if (sentNotes.length === 0) {
-                doc.text("No sent notes found.");
+                doc.text('No sent notes.');
+            } else {
+                sentNotes.slice(0, 100).forEach((n, i) => {
+                    doc.text(`${i + 1}. To: ${n.receiverName || n.receiver || 'Unknown'} - ${n.title || ''}`);
+                    doc.moveDown(0.2);
+                });
             }
 
-            sentNotes.forEach((note, index) => {
-                doc.moveDown(0.5);
-                doc.font("Helvetica-Bold")
-                    .text(`${index + 1}. ${note.title}`);
-
-                doc.font("Helvetica")
-                    .text(note.description);
-
-                addEntry("Receiver", note.receiverName);
-                addEntry("Sent Date", formatDate(note.sentAt));
-                addEntry("Read Status", note.isRead ? "Read" : "Unread");
-            });
-
-            // Received Notes
-            addSection(`Received Notes (${receivedNotes.length})`);
-
+            doc.moveDown(1);
+            doc.fontSize(14).text(`Received Notes (${receivedNotes.length})`, { underline: true });
+            doc.moveDown(0.5);
+            doc.fontSize(10);
             if (receivedNotes.length === 0) {
-                doc.text("No received notes found.");
+                doc.text('No received notes.');
+            } else {
+                receivedNotes.slice(0, 100).forEach((n, i) => {
+                    doc.text(`${i + 1}. From: ${n.senderName || n.sender || 'Unknown'} - ${n.title || ''}`);
+                    doc.moveDown(0.2);
+                });
             }
 
-            receivedNotes.forEach((note, index) => {
-                doc.moveDown(0.5);
-                doc.font("Helvetica-Bold")
-                    .text(`${index + 1}. ${note.title}`);
-
-                doc.font("Helvetica")
-                    .text(note.description);
-
-                addEntry("Sender", note.senderName);
-                addEntry("Received Date", formatDate(note.sentAt));
-                addEntry("Read Status", note.isRead ? "Read" : "Unread");
-            });
-
+            // --- CONTENT END ---
+            // Sab se end me ek hi baar end() call karo
             doc.end();
 
-        } catch (error) {
-            reject(error);
+        } catch (err) {
+            console.error("Outer PDF error:", err);
+            reject(err);
         }
-    }
-);
-    
-    // Last lines me
+    });
 };
 
 module.exports = generateDeletionPdf;
