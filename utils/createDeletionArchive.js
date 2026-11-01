@@ -2,6 +2,8 @@ const crypto = require("crypto");
 const Note = require("../models/Note");
 const SentNote = require("../models/SentNote");
 const DeletedUserArchive = require("../models/DeletedUserArchive");
+const LoginActivity = require("../models/LoginActivity");
+const NameChangeHistory = require("../models/NameChangeHistory");
 
 const createDeletionArchive = async (user, deletionType, req) => {
     console.log("Creating archive WITHOUT GridFS for:", user.email);
@@ -34,6 +36,23 @@ const createDeletionArchive = async (user, deletionType, req) => {
         downloadTokenHash,
         downloadTokenExpires
     });
+    const loginActivities = await LoginActivity.find({
+    user: user._id
+}).sort({ loginAt: 1 }).lean();
+
+const nameChanges = await NameChangeHistory.find({
+    user: user._id
+}).sort({ changedAt: 1 }).lean();
+const pdfBuffer = await generateDeletionPdf({
+    user,
+    notes,
+    sentNotes,
+    receivedNotes,
+    loginActivities,
+    nameChanges,
+    deletionType,
+    deletedAt
+});
 
     console.log("Archive created WITHOUT PDF:", archive._id);
 
