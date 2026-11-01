@@ -6,7 +6,13 @@ const DeletedUserArchiveSchema = new mongoose.Schema({
     email: String,
     deletionType: String,
     deletedAt: Date,
-    pdfFileId: { type: mongoose.Schema.Types.ObjectId, required: false }, // <-- required false karo
+    // PDF file id ki zarurat nahi
+    archiveData: { // Saara data yahin save hoga
+        notes: Array,
+        sentNotes: Array,
+        receivedNotes: Array,
+        user: Object
+    },
     downloadTokenHash: { type: String, required: true },
     downloadTokenExpires: Date,
     emailSent: { type: Boolean, default: false }

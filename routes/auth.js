@@ -1524,10 +1524,6 @@ router.get('/admin/notehistory', fectchuser, async (req, res) => {
 router.get("/deletion-archive/:token", async (req, res) => {
     try {
         const token = req.params.token?.trim();
-        if (!token) {
-            return res.status(400).send("<h1>Invalid token</h1>");
-        }
-
         const downloadTokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
         const archive = await DeletedUserArchive.findOne({
@@ -1536,68 +1532,32 @@ router.get("/deletion-archive/:token", async (req, res) => {
         });
 
         if (!archive) {
-            return res.status(404).send(`
-                <h1 style="font-family:sans-serif">Link Expired or Invalid</h1>
-                <p>This download link is valid for 30 days only.</p>
-                <p>Token: ${token.substring(0,10)}...</p>
-            `);
+            return res.status(404).send("<h1>Link Invalid or Expired - 30 days only</h1>");
         }
 
-        // Agar purani entry me pdfFileId null hai
-        if (!archive.pdfFileId) {
-            return res.status(404).json({
-                success: false,
-                error: "PDF was not generated for this old archive. Please delete account again to generate new PDF.",
-                archiveId: archive._id,
-                hint: "Delete all old archives from Atlas and create new account deletion"
-            });
-        }
+        console.log("Generating PDF on-the-fly for:", archive.email);
 
-        const db = mongoose.connection.db;
-        if (!db) {
-            return res.status(500).json({ success: false, error: "DB not connected" });
-        }
-
-        // FIX: mongodb se direct GridFSBucket
-        const { GridFSBucket } = require('mongodb');
-        const bucket = new GridFSBucket(db, {
-            bucketName: "deletedUserPdfs"
-        });
-
-        // Check file exists
-        const files = await bucket.find({ _id: archive.pdfFileId }).toArray();
+        // PDF on-the-fly generate karo
+        const generateDeletionPdf = require("../utils/generateDeletionPdf");
         
-        if (!files.length) {
-            console.log("File not found in GridFS for id:", archive.pdfFileId);
-            return res.status(404).json({
-                success: false,
-                error: "PDF file not found in storage. It may have been deleted.",
-                fileId: archive.pdfFileId
-            });
-        }
-
-        console.log("Downloading PDF:", files[0].filename);
+        const pdfBuffer = await generateDeletionPdf({
+            user: archive.archiveData.user || { _id: archive.originalUserId, name: archive.name, email: archive.email },
+            notes: archive.archiveData.notes || [],
+            sentNotes: archive.archiveData.sentNotes || [],
+            receivedNotes: archive.archiveData.receivedNotes || [],
+            deletionType: archive.deletionType,
+            deletedAt: archive.deletedAt
+        });
 
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader("Content-Disposition", `attachment; filename="iNotebook-Archive-${archive.name}.pdf"`);
-        res.setHeader("Cache-Control", "no-store");
-
-        const downloadStream = bucket.openDownloadStream(archive.pdfFileId);
+        res.setHeader("Content-Length", pdfBuffer.length);
         
-        downloadStream.on("error", (error) => {
-            console.error("PDF download error:", error);
-            if (!res.headersSent) {
-                res.status(500).json({ success: false, error: "Download failed" });
-            }
-        });
-
-        downloadStream.pipe(res);
+        return res.send(pdfBuffer);
 
     } catch (error) {
-        console.error("Archive download error:", error);
-        if (!res.headersSent) {
-            res.status(500).json({ success: false, error: "Server error: " + error.message });
-        }
+        console.error("PDF generate error:", error);
+        return res.status(500).json({ success: false, error: "PDF generation failed: " + error.message });
     }
 });
 
