@@ -1518,10 +1518,22 @@ router.get('/admin/notehistory', fectchuser, async (req, res) => {
 
 // Secure account deletion PDF download
 // Secure account deletion PDF download - FIXED VERSION
+// Secure account deletion PDF download
 router.get("/deletion-archive/:token", async (req, res) => {
     try {
         const token = req.params.token?.trim();
-        const downloadTokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+        if (!token) {
+            return res.status(400).json({
+                success: false,
+                error: "Download token is required."
+            });
+        }
+
+        const downloadTokenHash = crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("hex");
 
         const archive = await DeletedUserArchive.findOne({
             downloadTokenHash,
@@ -1529,32 +1541,55 @@ router.get("/deletion-archive/:token", async (req, res) => {
         });
 
         if (!archive) {
-            return res.status(404).send("<h1>Link Invalid or Expired - 30 days only</h1>");
+            return res.status(404).send("Download link is invalid or expired.");
         }
 
-        console.log("Generating PDF on-the-fly for:", archive.email);
+        const archiveData = archive.archiveData || {};
 
-        // PDF on-the-fly generate karo
         const generateDeletionPdf = require("../utils/generateDeletionPdf");
-        
+
         const pdfBuffer = await generateDeletionPdf({
-            user: archive.archiveData.user || { _id: archive.originalUserId, name: archive.name, email: archive.email },
-            notes: archive.archiveData.notes || [],
-            sentNotes: archive.archiveData.sentNotes || [],
-            receivedNotes: archive.archiveData.receivedNotes || [],
+            user: archiveData.user || {
+                _id: archive.originalUserId,
+                name: archive.name,
+                email: archive.email,
+                createdAt: archive.createdAt
+            },
+
+            notes: archiveData.notes || [],
+            sentNotes: archiveData.sentNotes || [],
+            receivedNotes: archiveData.receivedNotes || [],
+            loginActivities: archiveData.loginActivities || [],
+            nameChanges: archiveData.nameChanges || [],
+
             deletionType: archive.deletionType,
             deletedAt: archive.deletedAt
         });
 
+        if (!pdfBuffer || !pdfBuffer.length) {
+            throw new Error("PDF buffer is empty.");
+        }
+
+        const safeName = String(archive.name || "user")
+            .replace(/[^a-zA-Z0-9_-]/g, "_");
+
         res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", `attachment; filename="iNotebook-Archive-${archive.name}.pdf"`);
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="iNotebook-Archive-${safeName}.pdf"`
+        );
         res.setHeader("Content-Length", pdfBuffer.length);
-        
+        res.setHeader("Cache-Control", "no-store");
+
         return res.send(pdfBuffer);
 
     } catch (error) {
-        console.error("PDF generate error:", error);
-        return res.status(500).json({ success: false, error: "PDF generation failed: " + error.message });
+        console.error("PDF download error:", error);
+
+        return res.status(500).json({
+            success: false,
+            error: "PDF generation failed: " + error.message
+        });
     }
 });
 
@@ -1572,88 +1607,73 @@ router.get('/admin/deletion-archives', fectchuser, async (req, res) => {
     }
 });
 
+// Admin PDF download
 router.get('/admin/deletion-archives/:id/download', fectchuser, async (req, res) => {
     try {
-        const admin = await User.findById(req.user.id);
-        if (!admin || admin.role !== 'admin') {
-            return res.status(403).json({ success: false, error: "Admin only" });
-        }
+        const admin = await User.findById(req.user.id).select("role");
 
-        const archive = await DeletedUserArchive.findById(req.params.id);
-        if (!archive) {
-            return res.status(404).json({ success: false, error: "Archive not found" });
-        }
-
-        if (!archive.archiveData) {
-            return res.status(404).json({ success: false, error: "Old archive - no data. Delete account again." });
-        }
-
-        console.log("Admin downloading PDF for:", archive.email);
-        const generateDeletionPdf = require("../utils/generateDeletionPdf");
-        
-        const pdfBuffer = await generateDeletionPdf({
-            user: archive.archiveData.user || { name: archive.name, email: archive.email, _id: archive.originalUserId },
-            notes: archive.archiveData.notes || [],
-            sentNotes: archive.archiveData.sentNotes || [],
-            receivedNotes: archive.archiveData.receivedNotes || [],
-            deletionType: archive.deletionType,
-            deletedAt: archive.deletedAt
-        });
-
-        res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", `attachment; filename="ADMIN-${archive.name}.pdf"`);
-        return res.send(pdfBuffer);
-
-    } catch (error) {
-        console.error("Admin PDF download error:", error);
-        return res.status(500).json({ success: false, error: "PDF generation failed: " + error.message });
-    }
-});
-router.get('/admin/deletion-archives/:id/download', fectchuser, async (req, res) => {
-    // ADMIN - Download Deletion Archive PDF (No GridFS - On-the-fly)
-    try {
-        // Check admin - tumhara existing admin check
-        if (req.user.role !== 'admin' && req.user.email !== process.env.ADMIN_EMAIL) {
-            return res.status(403).json({ success: false, error: "Admin only" });
-        }
-
-        const archiveId = req.params.id;
-        const archive = await DeletedUserArchive.findById(archiveId);
-
-        if (!archive) {
-            return res.status(404).json({ success: false, error: "Archive not found" });
-        }
-
-        console.log("Admin downloading PDF for:", archive.email);
-
-        const generateDeletionPdf = require("../utils/generateDeletionPdf");
-        
-        // Purane archives jisme archiveData nahi hai unke liye check
-        if (!archive.archiveData) {
-            return res.status(404).json({ 
-                success: false, 
-                error: "This is old archive without data. Ask user to delete again." 
+        if (!admin || admin.role !== "admin") {
+            return res.status(403).json({
+                success: false,
+                error: "Admin access required."
             });
         }
 
+        const archive = await DeletedUserArchive.findById(req.params.id);
+
+        if (!archive) {
+            return res.status(404).json({
+                success: false,
+                error: "Archive not found."
+            });
+        }
+
+        const archiveData = archive.archiveData || {};
+
+        const generateDeletionPdf = require("../utils/generateDeletionPdf");
+
         const pdfBuffer = await generateDeletionPdf({
-            user: archive.archiveData.user || { name: archive.name, email: archive.email, _id: archive.originalUserId },
-            notes: archive.archiveData.notes || [],
-            sentNotes: archive.archiveData.sentNotes || [],
-            receivedNotes: archive.archiveData.receivedNotes || [],
+            user: archiveData.user || {
+                _id: archive.originalUserId,
+                name: archive.name,
+                email: archive.email,
+                createdAt: archive.createdAt
+            },
+
+            notes: archiveData.notes || [],
+            sentNotes: archiveData.sentNotes || [],
+            receivedNotes: archiveData.receivedNotes || [],
+            loginActivities: archiveData.loginActivities || [],
+            nameChanges: archiveData.nameChanges || [],
+
             deletionType: archive.deletionType,
             deletedAt: archive.deletedAt
         });
 
+        if (!pdfBuffer || !pdfBuffer.length) {
+            throw new Error("PDF buffer is empty.");
+        }
+
+        const safeName = String(archive.name || "user")
+            .replace(/[^a-zA-Z0-9_-]/g, "_");
+
         res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", `attachment; filename="ADMIN-${archive.name}-${archive._id}.pdf"`);
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="ADMIN-${safeName}.pdf"`
+        );
         res.setHeader("Content-Length", pdfBuffer.length);
-        
+        res.setHeader("Cache-Control", "no-store");
+
         return res.send(pdfBuffer);
 
     } catch (error) {
         console.error("Admin PDF download error:", error);
-        return res.status(500).json({ success: false, error: "PDF generation failed: " + error.message });
+
+        return res.status(500).json({
+            success: false,
+            error: "PDF generation failed: " + error.message
+        });
     }
 });
 
