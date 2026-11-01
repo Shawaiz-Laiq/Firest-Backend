@@ -19,7 +19,12 @@ const EmailLogSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ["verification", "password-reset"],
+      enum: [
+        "verification",
+        "password-reset",
+        "account-deletion-self",
+        "account-deletion-admin"
+      ],
       required: true
     },
 

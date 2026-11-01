@@ -18,6 +18,10 @@ const { SendPasswordResetEmail } = require("../middleware/Email");
 const SentNote = require('../models/SentNote');
 const SendAttempt = require('../models/SendAttempt');
 const NameChangeHistory = require("../models/NameChangeHistory");
+const mongoose = require("mongoose");
+const DeletedUserArchive = require("../models/DeletedUserArchive");
+const createDeletionArchive = require("../utils/createDeletionArchive");
+const { SendAccountDeletionEmail } = require("../middleware/Email");
 
 
 
@@ -444,12 +448,18 @@ router.delete('/delete-account', fectchuser, async (req, res) => {
             });
         }
 
-        // Save account in DeletedUser collection first
+        // STEP 1: Generate PDF and save archive in GridFS
+        const archiveResult = await createDeletionArchive(
+            user,
+            "self-deleted"
+        );
+
+        // STEP 2: Preserve existing restore functionality
         const deletedUser = new DeletedUser({
             originalUserId: user._id,
             name: user.name,
             email: user.email,
-            password: user.password, // Existing hashed password
+            password: user.password,
             role: user.role,
             lastLogin: user.lastLogin,
             lastSeen: user.lastSeen,
@@ -461,12 +471,11 @@ router.delete('/delete-account', fectchuser, async (req, res) => {
 
         await deletedUser.save();
 
-        // Remove original account from Users
+        // STEP 3: Delete active account
         const result = await User.deleteOne({
             _id: user._id
         });
 
-        // Roll back archive if original account was not deleted
         if (result.deletedCount !== 1) {
             await DeletedUser.deleteOne({
                 _id: deletedUser._id
@@ -478,9 +487,26 @@ router.delete('/delete-account', fectchuser, async (req, res) => {
             });
         }
 
+        // STEP 4: Send email only after successful deletion
+        const emailResult = await SendAccountDeletionEmail({
+            email: user.email,
+            name: user.name,
+            deletionType: "self-deleted",
+            downloadUrl: archiveResult.downloadUrl,
+            userId: user._id
+        });
+
+        // STEP 5: Update archive email status
+        await require("../models/DeletedUserArchive").findByIdAndUpdate(
+            archiveResult.archiveId,
+            { emailSent: emailResult.success }
+        );
+
         return res.json({
             success: true,
-            message: 'Your account has been deleted successfully.'
+            message: 'Your account has been deleted successfully.',
+            archiveCreated: true,
+            emailSent: emailResult.success
         });
 
     } catch (error) {
@@ -498,6 +524,7 @@ router.delete('/delete-account', fectchuser, async (req, res) => {
 // Move user to Deleted Users
 router.delete('/admin/delete-user/:id', fectchuser, async (req, res) => {
     try {
+        // Verify admin
         const admin = await User.findById(req.user.id);
 
         if (!admin || admin.role !== 'admin') {
@@ -507,6 +534,7 @@ router.delete('/admin/delete-user/:id', fectchuser, async (req, res) => {
             });
         }
 
+        // Find active user
         const user = await User.findOne({
             _id: req.params.id,
             role: 'user',
@@ -520,7 +548,13 @@ router.delete('/admin/delete-user/:id', fectchuser, async (req, res) => {
             });
         }
 
-        // Save user in DeletedUser collection first
+        // STEP 1: Create PDF archive
+        const archiveResult = await createDeletionArchive(
+            user,
+            "admin-deleted"
+        );
+
+        // STEP 2: Preserve restore functionality
         const deletedUser = new DeletedUser({
             originalUserId: user._id,
             name: user.name,
@@ -535,30 +569,54 @@ router.delete('/admin/delete-user/:id', fectchuser, async (req, res) => {
             deletedAt: new Date()
         });
 
-       await deletedUser.save();
+        await deletedUser.save();
 
-const result = await User.deleteOne({ _id: user._id });
+        // STEP 3: Delete active user
+        const result = await User.deleteOne({
+            _id: user._id
+        });
 
-if (result.deletedCount !== 1) {
-    await DeletedUser.deleteOne({ _id: deletedUser._id });
+        if (result.deletedCount !== 1) {
+            await DeletedUser.deleteOne({
+                _id: deletedUser._id
+            });
 
-    return res.status(500).json({
-        success: false,
-        error: 'User could not be removed from Users'
-    });
-}
+            return res.status(500).json({
+                success: false,
+                error: 'User could not be removed from Users'
+            });
+        }
 
-        res.json({
+        // STEP 4: Send admin deletion email
+        const emailResult = await SendAccountDeletionEmail({
+            email: user.email,
+            name: user.name,
+            deletionType: "admin-deleted",
+            downloadUrl: archiveResult.downloadUrl,
+            userId: user._id
+        });
+
+        // STEP 5: Update archive email status
+        await require("../models/DeletedUserArchive").findByIdAndUpdate(
+            archiveResult.archiveId,
+            {
+                emailSent: emailResult.success
+            }
+        );
+
+        return res.json({
             success: true,
-            message: 'User moved to Deleted Users collection'
+            message: 'User deleted successfully and archive created.',
+            archiveCreated: true,
+            emailSent: emailResult.success
         });
 
     } catch (error) {
-        console.error('Delete user error:', error);
+        console.error('Admin delete user error:', error);
 
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
-            error: 'Server error'
+            error: 'Server error while deleting user.'
         });
     }
 });
@@ -1497,6 +1555,199 @@ router.get('/admin/notehistory', fectchuser, async (req, res) => {
     console.error(error);
     res.status(500).json({ error: "Server error" });
   }
+});
+
+// Secure account deletion PDF download
+router.get("/deletion-archive/:token", async (req, res) => {
+    try {
+        const token = req.params.token;
+
+        // Hash the received token
+        const downloadTokenHash = crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("hex");
+
+        // Find valid archive
+        const archive = await DeletedUserArchive.findOne({
+            downloadTokenHash,
+            downloadTokenExpires: { $gt: new Date() }
+        }).select("+downloadTokenHash");
+
+        if (!archive) {
+            return res.status(404).json({
+                success: false,
+                error: "Download link is invalid or expired."
+            });
+        }
+
+        const db = mongoose.connection.db;
+
+        if (!db) {
+            return res.status(500).json({
+                success: false,
+                error: "Database connection unavailable."
+            });
+        }
+
+        const bucket = new mongoose.mongo.GridFSBucket(db, {
+            bucketName: "deletedUserPdfs"
+        });
+
+        const file = await bucket.find({
+            _id: archive.pdfFileId
+        }).toArray();
+
+        if (!file.length) {
+            return res.status(404).json({
+                success: false,
+                error: "PDF archive not found."
+            });
+        }
+
+        res.setHeader("Content-Type", "application/pdf");
+
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="iNotebook-Data-Archive.pdf"`
+        );
+
+        res.setHeader("Cache-Control", "no-store");
+
+        const downloadStream = bucket.openDownloadStream(
+            archive.pdfFileId
+        );
+
+        downloadStream.on("error", (error) => {
+            console.error("PDF download error:", error);
+
+            if (!res.headersSent) {
+                res.status(500).json({
+                    success: false,
+                    error: "Unable to download PDF."
+                });
+            } else {
+                res.destroy(error);
+            }
+        });
+
+        downloadStream.pipe(res);
+
+    } catch (error) {
+        console.error("Archive download route error:", error);
+
+        if (!res.headersSent) {
+            res.status(500).json({
+                success: false,
+                error: "Server error while downloading archive."
+            });
+        }
+    }
+});
+
+router.get('/admin/deletion-archives', fectchuser, async (req, res) => {
+    try {
+        const admin = await User.findById(req.user.id);
+
+        if (!admin || admin.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                error: 'Admin access required'
+            });
+        }
+
+        const archives = await DeletedUserArchive.find()
+            .select('-downloadTokenHash')
+            .sort({ deletedAt: -1 })
+            .lean();
+
+        return res.json({
+            success: true,
+            archives
+        });
+
+    } catch (error) {
+        console.error('Admin archive list error:', error);
+
+        return res.status(500).json({
+            success: false,
+            error: 'Unable to fetch deletion archives'
+        });
+    }
+});
+router.get('/admin/deletion-archives/:id/download', fectchuser, async (req, res) => {
+    try {
+        const admin = await User.findById(req.user.id);
+
+        if (!admin || admin.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                error: 'Admin access required'
+            });
+        }
+
+        const archive = await DeletedUserArchive.findById(req.params.id);
+
+        if (!archive) {
+            return res.status(404).json({
+                success: false,
+                error: 'Archive not found'
+            });
+        }
+
+        const db = mongoose.connection.db;
+
+        const bucket = new mongoose.mongo.GridFSBucket(db, {
+            bucketName: 'deletedUserPdfs'
+        });
+
+        const files = await bucket.find({
+            _id: archive.pdfFileId
+        }).toArray();
+
+        if (!files.length) {
+            return res.status(404).json({
+                success: false,
+                error: 'PDF file not found'
+            });
+        }
+
+        res.setHeader('Content-Type', 'application/pdf');
+
+        res.setHeader(
+            'Content-Disposition',
+            'attachment; filename="iNotebook-Data-Archive.pdf"'
+        );
+
+        res.setHeader('Cache-Control', 'no-store');
+
+        const stream = bucket.openDownloadStream(archive.pdfFileId);
+
+        stream.on('error', (error) => {
+            console.error('Admin PDF download error:', error);
+
+            if (!res.headersSent) {
+                res.status(500).json({
+                    success: false,
+                    error: 'PDF download failed'
+                });
+            } else {
+                res.destroy(error);
+            }
+        });
+
+        stream.pipe(res);
+
+    } catch (error) {
+        console.error('Admin archive download error:', error);
+
+        if (!res.headersSent) {
+            res.status(500).json({
+                success: false,
+                error: 'Server error'
+            });
+        }
+    }
 });
 
 module.exports = router;

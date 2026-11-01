@@ -217,8 +217,108 @@ If you did not request this, please ignore this email.`,
     };
   }
 };
+const SendAccountDeletionEmail = async ({
+    email,
+    name,
+    deletionType,
+    downloadUrl,
+    userId = null
+}) => {
+    try {
+        const isSelfDeleted = deletionType === "self-deleted";
+
+        const subject = isSelfDeleted
+            ? "Your iNotebook Account Has Been Deleted"
+            : "Your iNotebook Account Was Deleted by Admin";
+
+        const message = isSelfDeleted
+            ? "You requested the deletion of your iNotebook account."
+            : "Your iNotebook account was deleted by an administrator.";
+
+        const mail = await transporter.sendMail({
+            from: process.env.SMTP_USER,
+            to: email,
+            subject,
+
+            text: `
+Hello ${name},
+
+${message}
+
+Your personal data archive is available through the secure link below:
+
+${downloadUrl}
+
+This download link will expire after 30 days.
+
+Regards,
+iNotebook Team
+            `,
+
+            html: `
+                <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+                    <h2>iNotebook Account Deletion</h2>
+
+                    <p>Hello ${name},</p>
+
+                    <p>${message}</p>
+
+                    <p>
+                        Your personal data archive is available
+                        through the secure link below.
+                    </p>
+
+                    <a href="${downloadUrl}"
+                       style="display:inline-block;
+                       padding:12px 20px;
+                       background:#2563eb;
+                       color:white;
+                       text-decoration:none;
+                       border-radius:6px;">
+                       Download My Data Archive
+                    </a>
+
+                    <p>This secure download link expires after 30 days.</p>
+
+                    <p>Regards,<br>iNotebook Team</p>
+                </div>
+            `
+        });
+
+        await saveEmailLog({
+            email,
+            type: isSelfDeleted
+                ? "account-deletion-self"
+                : "account-deletion-admin",
+            status: "sent",
+            messageId: mail.messageId,
+            userId
+        });
+
+        return { success: true };
+
+    } catch (error) {
+        console.error("Account deletion email error:", error);
+
+        await saveEmailLog({
+            email,
+            type: deletionType === "self-deleted"
+                ? "account-deletion-self"
+                : "account-deletion-admin",
+            status: "failed",
+            error: error.message,
+            userId
+        });
+
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+};
 
 module.exports = {
-  SendPasswordResetEmail,
-  SendVerfication
+    SendPasswordResetEmail,
+    SendVerfication,
+    SendAccountDeletionEmail
 };
