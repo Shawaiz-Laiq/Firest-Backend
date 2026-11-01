@@ -440,85 +440,47 @@ if (!result || !result.success) {
 router.delete('/delete-account', fectchuser, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
-
         if (!user || user.role === 'admin') {
-            return res.status(404).json({
-                success: false,
-                error: 'Account not found'
-            });
+            return res.status(404).json({ success: false, error: 'Account not found' });
         }
 
-        // STEP 1: Generate PDF and save archive in GridFS
-        const archiveResult = await createDeletionArchive(
-            user,
-            "self-deleted"
-        );
+        let archiveResult = { success: false };
+        try {
+            archiveResult = await createDeletionArchive(user, "self-deleted", req);
+        } catch (e) {
+            console.log("Archive error but continuing delete:", e.message);
+        }
 
-        // STEP 2: Preserve existing restore functionality
         const deletedUser = new DeletedUser({
-            originalUserId: user._id,
-            name: user.name,
-            email: user.email,
-            password: user.password,
-            role: user.role,
-            lastLogin: user.lastLogin,
-            lastSeen: user.lastSeen,
-            loginCount: user.loginCount,
-            time: user.time,
-            createdAt: user.createdAt,
-            deletedAt: new Date()
+            originalUserId: user._id, name: user.name, email: user.email,
+            password: user.password, role: user.role, lastLogin: user.lastLogin,
+            lastSeen: user.lastSeen, loginCount: user.loginCount, time: user.time,
+            createdAt: user.createdAt, deletedAt: new Date()
         });
-
         await deletedUser.save();
 
-        // STEP 3: Delete active account
-        const result = await User.deleteOne({
-            _id: user._id
-        });
+        await User.deleteOne({ _id: user._id });
 
-        if (result.deletedCount !== 1) {
-            await DeletedUser.deleteOne({
-                _id: deletedUser._id
+        // Email try karo, fail bhi ho to account delete ho chuka hai
+        let emailSent = false;
+        try {
+            const emailResult = await SendAccountDeletionEmail({
+                email: user.email, name: user.name, deletionType: "self-deleted",
+                downloadUrl: archiveResult.downloadUrl, userId: user._id
             });
+            emailSent = emailResult?.success || false;
+            if (archiveResult.archiveId) {
+                await DeletedUserArchive.findByIdAndUpdate(archiveResult.archiveId, { emailSent });
+            }
+        } catch (e) { console.log("Email send failed:", e.message); }
 
-            return res.status(500).json({
-                success: false,
-                error: 'Account could not be deleted. Please try again.'
-            });
-        }
-
-        // STEP 4: Send email only after successful deletion
-        const emailResult = await SendAccountDeletionEmail({
-            email: user.email,
-            name: user.name,
-            deletionType: "self-deleted",
-            downloadUrl: archiveResult.downloadUrl,
-            userId: user._id
-        });
-
-        // STEP 5: Update archive email status
-        await require("../models/DeletedUserArchive").findByIdAndUpdate(
-            archiveResult.archiveId,
-            { emailSent: emailResult.success }
-        );
-
-        return res.json({
-            success: true,
-            message: 'Your account has been deleted successfully.',
-            archiveCreated: true,
-            emailSent: emailResult.success
-        });
+        return res.json({ success: true, message: 'Your account has been deleted successfully.', archiveCreated: archiveResult.success, emailSent });
 
     } catch (error) {
         console.error('Delete account error:', error);
-
-        return res.status(500).json({
-            success: false,
-            error: 'Server error while deleting account.'
-        });
+        return res.status(500).json({ success: false, error: 'Server error while deleting account: ' + error.message });
     }
 });
-
 
 
 // Move user to Deleted Users
