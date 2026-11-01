@@ -30,8 +30,7 @@ const { SendAccountDeletionEmail } = require("../middleware/Email");
 
 
 router.post('/createuser', [
-  body('email', "Enter a valid email")
-    .isEmail(),
+   body('email', "Enter a valid email").isEmail(),
 
   body('name', "Name must be between 3 and 12 characters")
     .customSanitizer(value =>
@@ -43,11 +42,10 @@ router.post('/createuser', [
 
   body('password', "Password must be at least 3 characters long")
     .isLength({ min: 3 })
+
 ], async (req, res) => {
 
   const errors = validationResult(req);
-  await DeletedUser.deleteOne({ email: email });
-    await DeletedUserArchive.deleteMany({ email: email });
 
   if (!errors.isEmpty()) {
     return res.status(400).json({
