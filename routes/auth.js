@@ -1520,89 +1520,83 @@ router.get('/admin/notehistory', fectchuser, async (req, res) => {
 });
 
 // Secure account deletion PDF download
+// Secure account deletion PDF download - FIXED VERSION
 router.get("/deletion-archive/:token", async (req, res) => {
     try {
-        const token = req.params.token;
+        const token = req.params.token?.trim();
+        if (!token) {
+            return res.status(400).send("<h1>Invalid token</h1>");
+        }
 
-        // Hash the received token
-        const downloadTokenHash = crypto
-            .createHash("sha256")
-            .update(token)
-            .digest("hex");
+        const downloadTokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
-        // Find valid archive
         const archive = await DeletedUserArchive.findOne({
             downloadTokenHash,
             downloadTokenExpires: { $gt: new Date() }
-        }).select("+downloadTokenHash");
+        });
 
         if (!archive) {
+            return res.status(404).send(`
+                <h1 style="font-family:sans-serif">Link Expired or Invalid</h1>
+                <p>This download link is valid for 30 days only.</p>
+                <p>Token: ${token.substring(0,10)}...</p>
+            `);
+        }
+
+        // Agar purani entry me pdfFileId null hai
+        if (!archive.pdfFileId) {
             return res.status(404).json({
                 success: false,
-                error: "Download link is invalid or expired."
+                error: "PDF was not generated for this old archive. Please delete account again to generate new PDF.",
+                archiveId: archive._id,
+                hint: "Delete all old archives from Atlas and create new account deletion"
             });
         }
 
         const db = mongoose.connection.db;
-
         if (!db) {
-            return res.status(500).json({
-                success: false,
-                error: "Database connection unavailable."
-            });
+            return res.status(500).json({ success: false, error: "DB not connected" });
         }
 
-        const bucket = new mongoose.mongo.GridFSBucket(db, {
+        // FIX: mongodb se direct GridFSBucket
+        const { GridFSBucket } = require('mongodb');
+        const bucket = new GridFSBucket(db, {
             bucketName: "deletedUserPdfs"
         });
 
-        const file = await bucket.find({
-            _id: archive.pdfFileId
-        }).toArray();
-
-        if (!file.length) {
+        // Check file exists
+        const files = await bucket.find({ _id: archive.pdfFileId }).toArray();
+        
+        if (!files.length) {
+            console.log("File not found in GridFS for id:", archive.pdfFileId);
             return res.status(404).json({
                 success: false,
-                error: "PDF archive not found."
+                error: "PDF file not found in storage. It may have been deleted.",
+                fileId: archive.pdfFileId
             });
         }
 
+        console.log("Downloading PDF:", files[0].filename);
+
         res.setHeader("Content-Type", "application/pdf");
-
-        res.setHeader(
-            "Content-Disposition",
-            `attachment; filename="iNotebook-Data-Archive.pdf"`
-        );
-
+        res.setHeader("Content-Disposition", `attachment; filename="iNotebook-Archive-${archive.name}.pdf"`);
         res.setHeader("Cache-Control", "no-store");
 
-        const downloadStream = bucket.openDownloadStream(
-            archive.pdfFileId
-        );
-
+        const downloadStream = bucket.openDownloadStream(archive.pdfFileId);
+        
         downloadStream.on("error", (error) => {
             console.error("PDF download error:", error);
-
             if (!res.headersSent) {
-                res.status(500).json({
-                    success: false,
-                    error: "Unable to download PDF."
-                });
-            } else {
-                res.destroy(error);
+                res.status(500).json({ success: false, error: "Download failed" });
             }
         });
 
         downloadStream.pipe(res);
 
     } catch (error) {
-        console.error("Archive download route error:", error);
-
+        console.error("Archive download error:", error);
         if (!res.headersSent) {
-            res.status(500).json({
-                success: false,
-                error: "Server error while downloading archive."
-            });
+            res.status(500).json({ success: false, error: "Server error: " + error.message });
         }
     }
 });
