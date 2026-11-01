@@ -56,6 +56,8 @@ const generateDeletionPdf = async ({
                 });
 
             doc.moveDown(1);
+            doc.end();
+    console.log("PDF doc.end() called");
 
             // Account Details
             addSection("Account Details");
@@ -130,7 +132,10 @@ const generateDeletionPdf = async ({
         } catch (error) {
             reject(error);
         }
-    });
+    }
+);
+    
+    // Last lines me
 };
 
 module.exports = generateDeletionPdf;
