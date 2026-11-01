@@ -56,6 +56,10 @@ resetPasswordExpires: {
   type: Date,
   default: null
 },
+sessionVersion: {
+    type: Number,
+    default: 0
+},
 verficationCode:String
 }, {
   timestamps: true
