@@ -1,21 +1,58 @@
+
 const mongoose = require("mongoose");
 
 const DeletedUserArchiveSchema = new mongoose.Schema({
-    originalUserId: { type: mongoose.Schema.Types.ObjectId, required: true },
-    name: String,
-    email: String,
-    deletionType: String,
-    deletedAt: Date,
-    // PDF file id ki zarurat nahi
-    archiveData: { // Saara data yahin save hoga
-        notes: Array,
-        sentNotes: Array,
-        receivedNotes: Array,
-        user: Object
+    originalUserId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        index: true
     },
-    downloadTokenHash: { type: String, required: true },
-    downloadTokenExpires: Date,
-    emailSent: { type: Boolean, default: false }
+
+    name: {
+        type: String,
+        required: true
+    },
+
+    email: {
+        type: String,
+        required: true,
+        lowercase: true
+    },
+
+    deletionType: {
+        type: String,
+        enum: ["self-deleted", "admin-deleted"],
+        required: true
+    },
+
+    deletedAt: {
+        type: Date,
+        default: Date.now
+    },
+
+    pdfFileId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true
+    },
+
+    downloadTokenHash: {
+        type: String,
+        required: true,
+        select: false
+    },
+
+    downloadTokenExpires: {
+        type: Date,
+        required: true
+    },
+
+    emailSent: {
+        type: Boolean,
+        default: false
+    }
+
 }, { timestamps: true });
 
-module.exports = mongoose.model("DeletedUserArchive", DeletedUserArchiveSchema);
+module.exports =
+    mongoose.models.DeletedUserArchive ||
+    mongoose.model("DeletedUserArchive", DeletedUserArchiveSchema);
