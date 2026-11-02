@@ -23,6 +23,7 @@ const DeletedUserArchive = require("../models/DeletedUserArchive");
 const createDeletionArchive = require("../utils/createDeletionArchive");
 const { SendAccountDeletionEmail } = require("../middleware/Email");
 const fetchuser = require("../middleware/fectchuser");
+const ChatMessage = require("../models/ChatMessage");
 
 
 
@@ -1679,36 +1680,38 @@ router.get('/admin/deletion-archives/:id/download', fectchuser, async (req, res)
 });
 
 
+
 router.get("/admin/messages", fetchuser, async (req, res) => {
-    try {
-        const admin = await User.findById(req.user.id);
+  try {
+    const admin = await User.findById(req.user.id);
 
-        if (!admin || admin.role !== "admin" || admin.isDeleted) {
-            return res.status(403).json({
-                success: false,
-                message: "Access denied. Admin only."
-            });
-        }
-
-        const messages = await ChatMessage.find()
-            .sort({ sentAt: -1 })
-            .lean();
-
-        return res.json({
-            success: true,
-            total: messages.length,
-            messages
-        });
-
-    } catch (error) {
-        console.error("Admin chat history error:", error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
+    if (!admin || admin.role !== "admin" || admin.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Admin only."
+      });
     }
+
+    const messages = await ChatMessage.find()
+      .sort({ sentAt: -1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      total: messages.length,
+      messages
+    });
+
+  } catch (error) {
+    console.error("Admin chat history error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
 });
+
 
 
 module.exports = router;
