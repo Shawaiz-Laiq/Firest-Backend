@@ -10,6 +10,7 @@ const Note = require('../models/Note');
 const User = require('../models/User');
 const SendAttempt = require('../models/SendAttempt');
 const sendNoteEmail = require('../utils/sendEmail');
+const ChatMessage = require("../models/ChatMessage");
 
 
 // Helper: active user check
@@ -312,5 +313,175 @@ router.post("/read/:senderId", fetchuser, async (req, res) => {
     });
   }
 });
+
+router.post("/message", fetchuser, async (req, res) => {
+    try {
+        const { receiverId, message } = req.body;
+
+        const sender = await getActiveUser(req.user.id);
+
+        if (!sender) {
+            return res.status(404).json({
+                success: false,
+                message: "Sender account not found"
+            });
+        }
+
+        if (!mongoose.isValidObjectId(receiverId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid receiver ID"
+            });
+        }
+
+        const receiver = await getActiveUser(receiverId);
+
+        if (!receiver) {
+            return res.status(404).json({
+                success: false,
+                message: "Receiver not found"
+            });
+        }
+
+        if (sender._id.equals(receiver._id)) {
+            return res.status(400).json({
+                success: false,
+                message: "You cannot message yourself"
+            });
+        }
+
+        if (typeof message !== "string" || !message.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: "Message cannot be empty"
+            });
+        }
+
+        if (message.trim().length > 5000) {
+            return res.status(400).json({
+                success: false,
+                message: "Message cannot exceed 5000 characters"
+            });
+        }
+
+        const newMessage = await ChatMessage.create({
+            sender: sender._id,
+            receiver: receiver._id,
+            senderName: sender.name,
+            senderEmail: sender.email,
+            receiverName: receiver.name,
+            receiverEmail: receiver.email,
+            message: message.trim()
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: "Message sent successfully",
+            chatMessage: newMessage
+        });
+
+    } catch (error) {
+        console.error("Send text message error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
+router.get("/messages", fetchuser, async (req, res) => {
+    try {
+        const user = await getActiveUser(req.user.id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        const activeUsers = await User.find({
+            isDeleted: { $ne: true }
+        }).distinct("_id");
+
+        const messages = await ChatMessage.find({
+            $or: [
+                {
+                    sender: user._id,
+                    receiver: { $in: activeUsers }
+                },
+                {
+                    receiver: user._id,
+                    sender: { $in: activeUsers }
+                }
+            ]
+        }).sort({ sentAt: -1 }).lean();
+
+        return res.json({
+            success: true,
+            messages
+        });
+
+    } catch (error) {
+        console.error("Get chat messages error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
+router.post("/message/read/:senderId", fetchuser, async (req, res) => {
+    try {
+        const user = await getActiveUser(req.user.id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        const { senderId } = req.params;
+
+        if (!mongoose.isValidObjectId(senderId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid sender ID"
+            });
+        }
+
+        const result = await ChatMessage.updateMany(
+            {
+                receiver: user._id,
+                sender: senderId,
+                isRead: false
+            },
+            {
+                $set: {
+                    isRead: true,
+                    readAt: new Date()
+                }
+            }
+        );
+
+        return res.json({
+            success: true,
+            message: "Messages marked as read",
+            updated: result.modifiedCount
+        });
+
+    } catch (error) {
+        console.error("Text message read error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
 
 module.exports = router;
