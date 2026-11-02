@@ -22,6 +22,7 @@ const mongoose = require("mongoose");
 const DeletedUserArchive = require("../models/DeletedUserArchive");
 const createDeletionArchive = require("../utils/createDeletionArchive");
 const { SendAccountDeletionEmail } = require("../middleware/Email");
+const fetchuser = require("../middleware/fectchuser");
 
 
 
