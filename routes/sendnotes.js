@@ -390,48 +390,61 @@ router.post("/message", fetchuser, async (req, res) => {
     }
 });
 
+
 router.get("/messages", fetchuser, async (req, res) => {
-    try {
-        const user = await getActiveUser(req.user.id);
+  try {
+    const user = await getActiveUser(req.user.id);
 
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found"
-            });
-        }
-
-        const activeUsers = await User.find({
-            isDeleted: { $ne: true }
-        }).distinct("_id");
-
-        const messages = await ChatMessage.find({
-            $or: [
-                {
-                    sender: user._id,
-                    receiver: { $in: activeUsers }
-                },
-                {
-                    receiver: user._id,
-                    sender: { $in: activeUsers }
-                }
-            ]
-        }).sort({ sentAt: -1 }).lean();
-
-        return res.json({
-            success: true,
-            messages
-        });
-
-    } catch (error) {
-        console.error("Get chat messages error:", error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
     }
+
+    const activeUsers = await User.find({
+      isDeleted: { $ne: true }
+    }).distinct("_id");
+
+    const messages = await ChatMessage.find({
+      $or: [
+        {
+          sender: user._id,
+          receiver: { $in: activeUsers }
+        },
+        {
+          receiver: user._id,
+          sender: { $in: activeUsers }
+        }
+      ]
+    })
+      .sort({ sentAt: 1 })
+      .lean();
+
+    // Identify outgoing and incoming messages
+    const formattedMessages = messages.map(msg => ({
+      ...msg,
+      direction:
+        String(msg.sender) === String(user._id)
+          ? "outgoing"
+          : "incoming"
+    }));
+
+    return res.json({
+      success: true,
+      messages: formattedMessages
+    });
+
+  } catch (error) {
+    console.error("Get chat messages error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
 });
+
 
 router.post("/message/read/:senderId", fetchuser, async (req, res) => {
     try {
